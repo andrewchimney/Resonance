@@ -5,4 +5,12 @@
 # vital presets drive: 
     https://drive.google.com/drive/folders/1iA4oPEGfsbhIeDHKhnUd0iGXqhDZfTs-?usp=sharing
 # how to run:
-    docker compose up 
+Run ```docker compose up```
+This is will start each of the containers
+* frontend: http://localhost:3000/
+* backend: http://localhost:8000/
+* minio: http://localhost:9001/ 
+* postgres/pgadmin: http://localhost:5050/
+
+
+
