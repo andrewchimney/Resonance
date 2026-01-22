@@ -7,6 +7,9 @@
 # vital presets drive: 
     https://drive.google.com/drive/folders/1iA4oPEGfsbhIeDHKhnUd0iGXqhDZfTs-?usp=sharing
 # how to run:
+
+
+
 VS Code might throw q fit if you don’t have the required Python packages installed yet.  
 Some dependencies only work correctly on **Python 3.12**, so make sure you’re using that version.
 
@@ -33,6 +36,10 @@ install packages:
 ```bash
 pip install -r backend/requirements.txt
 ```
+
+
+Make sure Docker Desktop is installed and running:
+https://www.docker.com/products/docker-desktop/
 
 Run ```docker compose up```. This is will start each of the containers
 * frontend: http://localhost:3000/
