@@ -37,7 +37,7 @@ install packages:
 pip install -r backend/requirements.txt
 ```
 
-Create a .env file and then copy .env.example to .env. Docker will use .env to store all of our passwords and keys. However, we can't expose these keys so .env will have to be gitignore. For since, all the services are hosted locally and have dummy data, we can use expose passwords. Copy the entire .env.example file into .env and make sure to save the file.
+Create a .env file and then copy .env.example to .env. Docker will use .env to store all of our passwords and keys. However, we can't expose these keys so .env will have to be gitignore. For now, since all the services are hosted locally and have dummy data, we can use expose passwords. Copy the entire .env.example file into .env and make sure to save the file.
 
 
 Make sure Docker Desktop is installed and running:
@@ -65,7 +65,7 @@ docker compose exec -T postgres psql -U app -d appdb < db/schema.sql
 
 http://localhost:5050/
 
-Login using the email and password from `docker-compose.yml`.
+Login using the email and password from `.env`.
 
 3. Connect to the database:
  
