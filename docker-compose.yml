@@ -5,17 +5,24 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./backend:/app
       - ./data:/app/data
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
-
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_BUCKET=synthgpt
   frontend:
     build: ./frontend
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://backend:8000
-    depends_on:
-      - backend
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev
 
   minio:
     image: minio/minio:latest
