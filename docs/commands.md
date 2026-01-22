@@ -7,7 +7,11 @@ docker compose -f docker-compose.prod2.yml up -d
 docker builder prune -af
 
 # Python Commands:
-source venv/bin/activate
+python -V
+python3.12 -m venv .venv
+source .venv/bin/activate
+deactivate
+pip install -r backend/requirements.txt 
 
 # Curl Commands:
 apt update && apt install curl -y

@@ -15,6 +15,10 @@ out/
 .env.test.local
 .env.production.local
 
+# Python
+__pycache__/
+.venv/
+
 #other
 .env
 .vital
