@@ -3,7 +3,8 @@
 import os
 import asyncpg
 from fastapi import FastAPI
-
+from dotenv import load_dotenv 
+load_dotenv()
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -50,6 +51,35 @@ async def get_presets():
             }
             for r in rows
         ]
+    }
+
+@app.get("/api/user/{id}")
+async def get_user_id(id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    row = await conn.fetchrow("""
+        SELECT
+            id,
+            username,
+            email,
+            created_at,
+            generation_prefrences
+        FROM public.users
+        WHERE id = $1
+    """, id)
+
+    await conn.close()
+
+    if not row:
+        return {"error": "User not found"}
+
+    return {
+        "user": {
+            "id": str(row["id"]),
+            "username": row["username"],
+            "email": row["email"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "generation_prefrences": row["generation_prefrences"],
+        }
     }
 
 
