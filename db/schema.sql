@@ -8,7 +8,8 @@ CREATE TABLE users (
   username TEXT UNIQUE NOT NULL,
   email TEXT UNIQUE,
   password_hash TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  generation_preferences TEXT
 );
 
 -- Presets table
@@ -18,7 +19,6 @@ CREATE TABLE presets (
   title TEXT NOT NULL,
   description TEXT,
   visibility TEXT DEFAULT 'public',
-  minio_key TEXT NOT NULL,
   preset_object_key TEXT NOT NULL DEFAULT '',
   preview_object_key TEXT,
   embedding VECTOR(384),
@@ -26,8 +26,31 @@ CREATE TABLE presets (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Posts table
+CREATE TABLE posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id UUID REFERENCES users(id),
+  preset_id UUID REFERENCES presets(id),
+  title TEXT NOT NULL,
+  description TEXT,
+  visibility TEXT DEFAULT 'public',
+  created_at TIMESTAMP DEFAULT NOW(),
+  votes INT4 DEFAULT 0
+);
+
+-- Comments table
+CREATE TABLE comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_user_id UUID REFERENCES users(id),
+  post_id UUID REFERENCES posts(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  visibility TEXT DEFAULT 'public',
+  created_at TIMESTAMP DEFAULT NOW(),
+  votes INT4 DEFAULT 0,
+  preset_id UUID REFERENCES presets(id)
+);
+
+CREATE INDEX posts_owner_idx ON posts(owner_user_id);
+CREATE INDEX comments_post_idx ON comments(post_id);
 CREATE INDEX presets_owner_idx ON presets(owner_user_id);
 CREATE INDEX presets_embedding_idx ON presets USING ivfflat (embedding);
-
--- DROP TABLE IF EXISTS presets CASCADE;
--- DROP TABLE IF EXISTS users CASCADE;
