@@ -1,10 +1,8 @@
--- Enable UUID + pgvector
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS vector;
 GRANT USAGE ON SCHEMA auth TO postgres; 
 GRANT SELECT ON auth.users TO postgres;
 DROP TABLE IF EXISTS public.users CASCADE;
--- Users table
 
 CREATE TABLE public.users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -12,6 +10,12 @@ CREATE TABLE public.users (
   generation_preferences TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE POLICY "Allow auth trigger to insert user"
+ON public.users
+FOR INSERT
+WITH CHECK (true);
+
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -55,7 +59,6 @@ FOR UPDATE
 USING (auth.uid() = id);
 
 
--- Presets table
 CREATE TABLE presets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_user_id UUID REFERENCES users(id),
@@ -69,7 +72,6 @@ CREATE TABLE presets (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Presets table
 CREATE TABLE posts(
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_user_id UUID REFERENCES users(id),
@@ -81,7 +83,6 @@ CREATE TABLE posts(
   votes INTEGER DEFAULT 0
 
 );
--- Presets table
 CREATE TABLE comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_user_id UUID REFERENCES users(id),
