@@ -10,7 +10,7 @@ CREATE TABLE public.users (
   generation_preferences TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
-
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow auth trigger to insert user"
 ON public.users
 FOR INSERT
@@ -41,6 +41,7 @@ BEGIN
   RETURN new;
 END;
 $$;
+ALTER FUNCTION public.handle_new_auth_user() OWNER TO postgres;
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 
 CREATE TRIGGER on_auth_user_created
