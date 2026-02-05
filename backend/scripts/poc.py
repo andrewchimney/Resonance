@@ -18,8 +18,10 @@ print(f"Loaded {len(audio_files)} audio files")
 # 3) embed audio (shape: [2, D])
 audio_embeds = model.get_audio_embedding_from_filelist(x=audio_files, use_tensor=False)
 
+print(audio_embeds.shape)
+
 # 4) query text
-query = "lazer"
+query = "jazzy chords with a warm vibe"
 text_embed = model.get_text_embedding([query], use_tensor=False)[0]  # shape: [D]
 
 # 5) score & pick best
