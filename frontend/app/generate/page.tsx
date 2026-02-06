@@ -34,11 +34,18 @@ export default function Page() {
 
       <button onClick={search}>Go</button>
 
-      <div>
-        {results.map((r, i) => (
-          <div key={i}>{r.title}</div>
-        ))}
-      </div>
+     <div>
+  {results.map((r, i) => (
+    <div key={i}>
+      <div>{r.title}</div>
+
+      <audio
+        controls
+        src={`https://tsgqkjbmcokktrdyyiro.supabase.co/storage/v1/object/public/previews/${r.preview_object_key}`}
+      />
+    </div>
+  ))}
+</div>
     </div>
   );
 }
