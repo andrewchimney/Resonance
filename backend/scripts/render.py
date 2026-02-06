@@ -3,15 +3,22 @@ import sys
 import time
 from pathlib import Path
 
+
 import numpy as np
 from scipy.io import wavfile
 import vita
 
-# --------- settings you probably want to tweak ----------
-current_directory = os.getcwd()
-print("Current directory:", current_directory)
-ROOT = Path("data/presets/Jek's Vital Presets/[Patent Sounds] - Luminance LITE (Vital Soundbank)/Presets")                 # folder to search from
-OUT_ROOT = Path("data/previews") # where wavs go
+
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent      
+BACKEND_DIR = BASE_DIR.parent                  
+
+ROOT = BACKEND_DIR / "data" / "presets" / "Jek's Vital Presets"
+OUT_ROOT = BACKEND_DIR / "data" / "previews"
+
+# ROOT = Path("data/presets/Jek's Vital Presets/[Patent Sounds] - Luminance LITE (Vital Soundbank)/Presets")                 # folder to search from
+# OUT_ROOT = Path("data/previews") # where wavs go
 SAMPLE_RATE = 44100
 BPM = 120.0
 
@@ -48,10 +55,13 @@ def main():
     #synth.set_sample_rate(SAMPLE_RATE)
     synth.set_bpm(BPM)
 
+    
+        
     preset_paths = sorted(ROOT.rglob("*.vital"))
+
     if not preset_paths:
-        print("No .vital files found. Are you in the right folder?")
-        sys.exit(1)
+        print("No .vital files found. Check ROOT path.")
+        return
 
     print(f"Found {len(preset_paths)} presets")
 
@@ -82,7 +92,7 @@ def main():
             ok += 1
 
         except Exception as e:
-            failed += 1
+            failed += 1 
             print(f"[FAIL] {preset_path}: {e}")
 
         if i % PRINT_EVERY == 0:
