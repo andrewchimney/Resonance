@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 
@@ -150,9 +151,9 @@ export default function BrowsePage() {
       {/* Navbar */}
       <nav className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-black">
         {/* Logo/Brand */}
-        <div className="text-xl font-semibold text-black dark:text-white">
+        <Link href="/" className="text-xl font-semibold text-black dark:text-white hover:opacity-80 transition">
           Resonance
-        </div>
+        </Link>
         
         {/* Search Box */}
         <div className="flex-1 mx-8 max-w-2xl">
@@ -167,9 +168,9 @@ export default function BrowsePage() {
         
         {/* Generate and Profile */}
         <div className="relative flex items-center gap-6">
-          <button className="text-sm font-medium text-black transition-colors hover:text-zinc-600 hover:underline dark:text-white dark:hover:text-zinc-300 cursor-pointer">
+          <Link href="/generate" className="text-sm font-medium text-black transition-colors hover:text-zinc-600 hover:underline dark:text-white dark:hover:text-zinc-300 cursor-pointer">
             Generate
-          </button>
+          </Link>
           {user ? (
             <button
               aria-label="Profile"
