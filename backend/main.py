@@ -3,8 +3,9 @@
 from contextlib import asynccontextmanager
 import os
 import asyncpg
+from typing import Optional
 from pydantic import BaseModel
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from dotenv import load_dotenv 
 load_dotenv()
 
