@@ -8,6 +8,14 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   isLoading?: boolean;
+  presets?: Array<{
+    id: string;
+    title: string;
+    score: number;
+    preview_object_key: string | null;
+    preset_object_key?: string;
+  }>;
+  error?: boolean;
 }
 
 const placeholderExamples = [
@@ -38,6 +46,9 @@ export default function Home() {
   const [showChat, setShowChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Use hardcoded Supabase URL (same as generate page) since env vars don't work in Docker
+  const SUPABASE_STORAGE_URL = "https://tsgqkjbmcokktrdyyiro.supabase.co/storage/v1/object/public";
+  
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -93,12 +104,13 @@ export default function Home() {
     setShowAuthPanel(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
 
     // Add user message
     const userMessage: Message = { role: "user", content: inputValue };
+    const query = inputValue;
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setShowChat(true);
@@ -107,17 +119,47 @@ export default function Home() {
     const loadingMessage: Message = { role: "assistant", content: "", isLoading: true };
     setMessages((prev) => [...prev, loadingMessage]);
 
-    // Simulate AI response after 2 seconds
-    setTimeout(() => {
+    // Call the /api/retrieve endpoint
+    try {
+      const res = await fetch("http://localhost:8000/api/retrieve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, k: 5 }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to fetch presets");
+      }
+
+      const data = await res.json();
+      const results = data.results || [];
+      
+      // Debug: log the results to see what data we're getting
+      console.log("Retrieved presets:", results);
+
       setMessages((prev) => {
         const withoutLoading = prev.filter((msg) => !msg.isLoading);
         const assistantMessage: Message = {
           role: "assistant",
-          content: "This is a placeholder response. I'll generate a synth preset based on your description once connected to the backend.",
+          content: results.length > 0 
+            ? `Here are the top ${results.length} preset${results.length !== 1 ? 's' : ''} that match your description:`
+            : `No presets found matching "${query}". Try a different description!`,
+          presets: results.length > 0 ? results : undefined,
         };
         return [...withoutLoading, assistantMessage];
       });
-    }, 2000);
+    } catch (error) {
+      console.error("Error fetching presets:", error);
+      setMessages((prev) => {
+        const withoutLoading = prev.filter((msg) => !msg.isLoading);
+        const assistantMessage: Message = {
+          role: "assistant",
+          content: "Sorry, I couldn't connect to the backend. Make sure the server is running on http://localhost:8000",
+          error: true,
+        };
+        return [...withoutLoading, assistantMessage];
+      });
+    }
   };
 
   // Auto-scroll to bottom when new messages arrive
@@ -231,7 +273,7 @@ export default function Home() {
       </nav>
 
       {/* Main Content */}
-      <main className="flex flex-1 w-full items-start justify-center bg-white dark:bg-black pt-32 overflow-hidden" style={{ minWidth: '1400px' }}>
+      <main className="flex flex-1 w-full items-start justify-center bg-white dark:bg-black pt-8 overflow-hidden" style={{ minWidth: '1400px' }}>
         {/* Left Robot Image */}
         <div className="flex justify-end h-full" style={{ width: '300px', marginRight: '80px' }}>
           <div className="pt-16">
@@ -278,7 +320,7 @@ export default function Home() {
             </div>
           ) : (
             // Chat view
-            <div className="flex flex-col h-full" style={{ height: 'calc(100vh - 280px)' }}>
+            <div className="flex flex-col h-full" style={{ height: 'calc(100vh - 140px)' }}>
               {/* Messages container */}
               <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
                 {messages.map((message, index) => (
@@ -287,7 +329,7 @@ export default function Home() {
                     className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     {message.isLoading ? (
-                      <div className="rounded-2xl bg-white border border-zinc-300 px-4 py-3 text-black dark:bg-zinc-800 dark:border-zinc-700 dark:text-white max-w-[80%]">
+                      <div className="rounded-lg bg-white border border-black px-4 py-2 text-black dark:bg-black dark:border-white dark:text-white max-w-[80%]">
                         <div className="flex gap-1 items-center">
                           <div className="bouncing-dot" style={{ animationDelay: '0s' }}></div>
                           <div className="bouncing-dot" style={{ animationDelay: '0.2s' }}></div>
@@ -296,13 +338,62 @@ export default function Home() {
                       </div>
                     ) : (
                       <div
-                        className={`rounded-2xl px-4 py-3 max-w-[80%] ${
+                        className={`rounded-lg px-4 py-2 max-w-[80%] border ${
                           message.role === "user"
-                            ? "bg-zinc-800 text-white dark:bg-zinc-700"
-                            : "bg-white border border-zinc-300 text-black dark:bg-zinc-800 dark:border-zinc-700 dark:text-white"
+                            ? "bg-black text-white border-white dark:bg-white dark:text-black dark:border-black"
+                            : "bg-white text-black border-black dark:bg-black dark:text-white dark:border-white"
                         }`}
                       >
-                        {message.content}
+                        <div className={message.error ? "text-red-600 dark:text-red-400" : ""}>
+                          {message.content}
+                        </div>
+                        {message.presets && message.presets.length > 0 && (
+                          <div className="mt-2 space-y-2">
+                            {message.presets.map((preset, presetIndex) => (
+                              <div
+                                key={presetIndex}
+                                className="border-t border-black dark:border-white pt-2 mt-2"
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <div className="flex-1">
+                                    <div className="font-medium text-sm text-black dark:text-white">
+                                      {preset.title}
+                                    </div>
+                                    <div className="text-xs opacity-60 mt-0.5">
+                                      {(preset.score * 100).toFixed(0)}% match
+                                    </div>
+                                  </div>
+                                  <a
+                                    href={`${SUPABASE_STORAGE_URL}/presets/${preset.preset_object_key || preset.id}`}
+                                    download
+                                    className="px-2 py-1 border border-black dark:border-white hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition"
+                                    title="Download"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                  </a>
+                                </div>
+                                {preset.preview_object_key ? (
+                                  <div className="mt-1.5">
+                                    <audio
+                                      controls
+                                      className="w-full"
+                                      style={{ height: '40px' }}
+                                      src={`${SUPABASE_STORAGE_URL}/previews/${preset.preview_object_key}`}
+                                    >
+                                      Your browser does not support the audio element.
+                                    </audio>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs opacity-50 italic mt-1">
+                                    No preview available
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
