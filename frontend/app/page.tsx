@@ -4,8 +4,19 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-white dark:bg-black">
-      <main className="flex flex-col items-center gap-8 px-8 text-center">
+    <div 
+      className="flex min-h-screen flex-col items-center justify-center bg-white dark:bg-black relative"
+      style={{
+        backgroundImage: 'url(/background.png)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center 30%',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
+      {/* Blur overlay for better text readability */}
+      <div className="absolute inset-0 backdrop-blur-md"></div>
+      
+      <main className="flex flex-col items-center gap-8 px-8 text-center relative z-10">
         <h1 className="text-8xl font-bold tracking-tight text-black dark:text-white">
           Resonance
         </h1>
