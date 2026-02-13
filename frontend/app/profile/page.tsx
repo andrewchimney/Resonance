@@ -207,33 +207,35 @@ export default function ProfilePage() {
     }
   }
 
-  async function fetchPresetsData() {
-    if (!user) return;
-    
-    try {
-      setLoadingPresets(true);
-      // Replace this with supabase query wjen ready
-        { id: '1', uuid: 'abc123-def456-ghi789', name: 'Rock Preset', created_at: '2024-01-15' },
-        { id: '2', uuid: 'jkl012-mno345-pqr678', name: 'Jazz Preset', created_at: '2024-01-20' },
-        { id: '3', uuid: 'stu901-vwx234-yza567', name: 'Electronic Preset', created_at: '2024-01-25' },
-      ];
-      
-      setPresets(mockPresets);
-      
-    } catch (error) {
-      console.log("Error fetching presets:", error);
-      setPresets([]);
-    } finally {
-      setLoadingPresets(false);
-    }
+ async function fetchPresetsData() {
+  if (!user) return;
+
+  try {
+    setLoadingPresets(true);
+
+    // Demo values, fix when psots and presetsare ready
+    const mockPresets = [
+      { id: '1', uuid: 'abc123-def456-ghi789', name: 'Rock Preset', created_at: '2024-01-15' },
+      { id: '2', uuid: 'jkl012-mno345-pqr678', name: 'Jazz Preset', created_at: '2024-01-20' },
+      { id: '3', uuid: 'stu901-vwx234-yza567', name: 'Electronic Preset', created_at: '2024-01-25' },
+    ];
+
+    setPresets(mockPresets);
+
+  } catch (error) {
+    console.log("Error fetching presets:", error);
+    setPresets([]);
+  } finally {
+    setLoadingPresets(false);
   }
+}
 
   async function fetchPostsData() {
     if (!user) return;
     
     try {
       setLoadingPosts(true);
-      // Replace this with supabase query wjen ready
+    // Demo values, fix when psots and presetsare ready
       const mockPosts: PostData[] = [
         { id: '1', uuid: 'bcd234-efg567-hij890', title: 'My First Post', created_at: '2024-01-10' },
         { id: '2', uuid: 'klm123-nop456-qrs789', title: 'Music Theory Discussion', created_at: '2024-01-18' },
