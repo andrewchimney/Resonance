@@ -10,16 +10,21 @@ from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv 
 
 load_dotenv()
+# Legacy Ollama config - now managed by llm/providers.py
+# Use LLM_PROVIDER env var to switch between openai, gemini, ollama
 OLLAMA_BASE_URL = "http://ollama:11434"
 OLLAMA_MODEL = "qwen2.5:7b-instruct"
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import httpx
 
 import laion_clap
 
 
 from rag.retrieve import router as retrieve_router
+from llm import get_llm, get_generation_chain, get_rag_chain
+from llm.providers import check_provider_health, get_provider_config, LLMProvider
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -73,14 +78,144 @@ class PostCreate(BaseModel):
 class ReactionCreate(BaseModel):
     reaction_type: str  # "like" or "dislike"
 
+# Pydantic models for LLM endpoints
+class GenerateRequest(BaseModel):
+    description: str
+    context: Optional[str] = None
+    provider: Optional[str] = None  # "openai", "gemini", or "ollama"
+    stream: bool = False
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[list] = None
+    provider: Optional[str] = None
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
 
 
+# ==================== LLM API ====================
+
+@app.get("/api/llm/health")
+async def llm_health(provider: Optional[str] = Query(None)):
+    """Check if the LLM provider is available and responding"""
+    result = await check_provider_health(provider)
+    return result
+
+
+@app.get("/api/llm/config")
+def llm_config():
+    """Get current LLM configuration"""
+    config = get_provider_config()
+    return {
+        "provider": config.provider.value,
+        "model": config.model,
+        "temperature": config.temperature,
+        "base_url": config.base_url if config.provider == LLMProvider.OLLAMA else None,
+    }
+
+
+@app.get("/api/llm/providers")
+def list_providers():
+    """List available LLM providers"""
+    return {
+        "providers": [
+            {
+                "id": "openai",
+                "name": "OpenAI",
+                "models": ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+                "requires_api_key": True,
+                "env_var": "OPENAI_API_KEY",
+            },
+            {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "models": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"],
+                "requires_api_key": True,
+                "env_var": "GOOGLE_API_KEY",
+            },
+            {
+                "id": "ollama", 
+                "name": "Ollama (Local)",
+                "models": ["qwen2.5:7b-instruct", "llama3", "mistral", "codellama"],
+                "requires_api_key": False,
+                "env_var": None,
+            },
+        ],
+        "current": get_provider_config().provider.value,
+    }
+
+
+@app.post("/api/generate")
+async def generate_preset(req: GenerateRequest):
+    """Generate preset suggestions from a text description"""
+    try:
+        chain = get_generation_chain(provider=req.provider)
+        
+        if req.stream:
+            # Streaming response
+            async def generate_stream():
+                async for chunk in chain.astream({
+                    "description": req.description,
+                    "context": req.context or ""
+                }):
+                    yield chunk
+            
+            return StreamingResponse(
+                generate_stream(),
+                media_type="text/plain"
+            )
+        else:
+            # Non-streaming response
+            result = await chain.ainvoke({
+                "description": req.description,
+                "context": req.context or ""
+            })
+            return {"result": result}
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest):
+    """Chat with the LLM assistant"""
+    try:
+        from llm.chains import get_chat_chain
+        
+        chain = get_chat_chain(provider=req.provider)
+        
+        # Format history for the chain
+        messages = []
+        if req.history:
+            for msg in req.history:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        
+        result = await chain.ainvoke({
+            "messages": messages,
+            "input": req.message
+        })
+        
+        return {"response": result}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+
+
 class RetrieveRequest(BaseModel):
     query: str
     k: int = 10
+
 
 app.include_router(retrieve_router)
 
