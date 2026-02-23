@@ -21,14 +21,6 @@ from .providers import get_llm
 with open("parameters.txt", "r") as f:
     parameter_list = f.read()
 
-system_prompt = base_system_prompt + f"""
-
-## Available Parameters
-The following is the exhaustive list of parameters you are allowed to read and modify. Do not use any parameter not on this list:
-
-{parameter_list}
-"""
-
 PRESET_GENERATION_SYSTEM = """You are an expert music synthesis assistant specialized in modifying synthesizer preset files in Vital the synthesizer . Your role is to interpret the user's creative or technical intent and translate it into precise parameter changes.
 
                               ## Your Capabilities
@@ -59,6 +51,14 @@ PRESET_GENERATION_SYSTEM = """You are an expert music synthesis assistant specia
                               When making changes, output:
                               1. A JSON object containing only the parameters you are changing and their new values.
                               2. A short explanation (2-4 sentences) of what was changed and the reasoning behind it."""
+
+PRESET_GENERATION_SYSTEM = PRESET_GENERATION_SYSTEM + f"""
+
+## Available Parameters
+The following is the exhaustive list of parameters you are allowed to read and modify. Do not use any parameter not on this list:
+
+{parameter_list}
+"""
 
 PRESET_GENERATION_TEMPLATE = """Based on the user's description, suggest synthesizer preset parameters.
 
