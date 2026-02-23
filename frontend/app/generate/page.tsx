@@ -499,4 +499,17 @@ export default function GeneratePage() {
           </div>
           <div className="flex justify-start pl-20">
           <Image
-            className="dark:invert scale-y
+            className="dark:invert scale-y-[4.5] scale-x-[-1]"
+            src="/robot-black.svg"
+            alt="SynthGPT logo"
+            width={120}
+            height={120}
+            priority
+          />
+          </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
