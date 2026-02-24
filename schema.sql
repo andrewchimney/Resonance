@@ -8,15 +8,15 @@ CREATE TABLE users (
   username TEXT UNIQUE NOT NULL,
   email TEXT UNIQUE,
   password_hash TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
-  generation_prefrences TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  generation_prefrences TEXT
 
 );
 
 -- Presets table
 CREATE TABLE presets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id UUID REFERENCES users(id),
+  owner_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   visibility TEXT DEFAULT 'public',
   supabase_key TEXT NOT NULL,
@@ -27,11 +27,11 @@ CREATE TABLE presets (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Presets table
+-- Posts table
 CREATE TABLE posts(
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id UUID REFERENCES users(id),
-  preset_id UUID REFERENCES presets(id),
+  owner_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  preset_id UUID REFERENCES presets(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
   visibility TEXT DEFAULT 'public',
@@ -39,16 +39,16 @@ CREATE TABLE posts(
   votes INTEGER DEFAULT 0
 
 );
--- Presets table
+-- Comments table
 CREATE TABLE comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id UUID REFERENCES users(id),
-  post_id UUID REFERENCES posts(id),
+  owner_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  post_id UUID REFERENCES posts(id) ON DELETE CASCADE,
   body TEXT NOT NULL,
   visibility TEXT DEFAULT 'public',
   created_at TIMESTAMP DEFAULT NOW(),
   votes INTEGER DEFAULT 0,
-  preset_id UUID REFERENCES presets(id) 
+  preset_id UUID REFERENCES presets(id) ON DELETE CASCADE
 
 );
 
