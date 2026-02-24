@@ -50,6 +50,8 @@ export default function GeneratePage() {
   // Use env vars for bucket URLs
   const PRESETS_BUCKET = process.env.NEXT_PUBLIC_PRESETS_BUCKET;
   const PREVIEWS_BUCKET = process.env.NEXT_PUBLIC_PREVIEWS_BUCKET;
+
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
   
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -110,9 +112,11 @@ export default function GeneratePage() {
     e.preventDefault();
     if (!inputValue.trim()) return;
 
+    const query = inputValue.trim();
+
     // Add user message
-    const userMessage: Message = { role: "user", content: inputValue };
-    const query = inputValue;
+    const userMessage: Message = { role: "user", content: query };
+    const historySnapshot = [...messages, userMessage];
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setShowChat(true);
@@ -121,9 +125,22 @@ export default function GeneratePage() {
     const loadingMessage: Message = { role: "assistant", content: "", isLoading: true };
     setMessages((prev) => [...prev, loadingMessage]);
 
-    // Call the /api/retrieve endpoint
+    const toHistoryPayload = (items: Message[]) =>
+      items
+        .filter((msg) => !msg.isLoading && !msg.error)
+        .map((msg) => ({ role: msg.role, content: msg.content }));
+
+    const buildPresetContext = (presets: NonNullable<Message["presets"]>) =>
+      presets
+        .map((preset, index) => {
+          const score = Number.isFinite(preset.score) ? preset.score.toFixed(3) : "n/a";
+          const preview = preset.preview_object_key ?? "none";
+          return `${index + 1}. ${preset.title} (id: ${preset.id}, score: ${score}, preview: ${preview})`;
+        })
+        .join("\n");
+
     try {
-      const res = await fetch("http://localhost:8000/api/retrieve", {
+      const res = await fetch(`${API_BASE_URL}/api/retrieve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, k: 5 }),
@@ -135,20 +152,62 @@ export default function GeneratePage() {
 
       const data = await res.json();
       const results = data.results || [];
-      
+
       // Debug: log the results to see what data we're getting
       console.log("Retrieved presets:", results);
 
+      const assistantMessages: Message[] = [];
+      assistantMessages.push({
+        role: "assistant",
+        content:
+          results.length > 0
+            ? `Here are the top ${results.length} preset${results.length !== 1 ? "s" : ""} that match your description:`
+            : `No presets found matching "${query}". Try a different description!`,
+        presets: results.length > 0 ? results : undefined,
+      });
+
+      try {
+        const history = toHistoryPayload(historySnapshot);
+        const presetContext = results.length > 0 ? buildPresetContext(results) : "";
+
+        if (presetContext) {
+          history.push({
+            role: "assistant",
+            content: `Relevant presets from the database:\n${presetContext}`,
+          });
+        }
+
+        const chatRes = await fetch(`${API_BASE_URL}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: query,
+            history,
+          }),
+        });
+
+        if (!chatRes.ok) {
+          throw new Error("Failed to fetch LLM response");
+        }
+
+        const chatData = await chatRes.json();
+        assistantMessages.push({
+          role: "assistant",
+          content: chatData.response ?? "I couldn't generate a refinement response.",
+        });
+      } catch (error) {
+        console.error("Error fetching LLM response:", error);
+        assistantMessages.push({
+          role: "assistant",
+          content:
+            "Sorry, I couldn't refine the sound with the LLM right now. The retrieve results are still shown above.",
+          error: true,
+        });
+      }
+
       setMessages((prev) => {
         const withoutLoading = prev.filter((msg) => !msg.isLoading);
-        const assistantMessage: Message = {
-          role: "assistant",
-          content: results.length > 0 
-            ? `Here are the top ${results.length} preset${results.length !== 1 ? 's' : ''} that match your description:`
-            : `No presets found matching "${query}". Try a different description!`,
-          presets: results.length > 0 ? results : undefined,
-        };
-        return [...withoutLoading, assistantMessage];
+        return [...withoutLoading, ...assistantMessages];
       });
     } catch (error) {
       console.error("Error fetching presets:", error);
@@ -156,7 +215,8 @@ export default function GeneratePage() {
         const withoutLoading = prev.filter((msg) => !msg.isLoading);
         const assistantMessage: Message = {
           role: "assistant",
-          content: "Sorry, I couldn't connect to the backend. Make sure the server is running on http://localhost:8000",
+          content:
+            `Sorry, I couldn't connect to the backend. Make sure the server is running on ${API_BASE_URL}`,
           error: true,
         };
         return [...withoutLoading, assistantMessage];
@@ -449,7 +509,6 @@ export default function GeneratePage() {
           </div>
           </div>
         </div>
-        
       </main>
     </div>
   );
