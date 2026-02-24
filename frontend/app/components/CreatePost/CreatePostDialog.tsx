@@ -17,7 +17,7 @@ interface CreatePostDialogProps {
  * Purpose: Display a dialog box when a non-loggin-in user clicks the button
  * to create a post. This will display two options:
  * 1. Sign up: Navigates user to signup page and save post to their account
- * 2. Post Anonymously: Post as "Sammy B. Slug" without creating an account
+ * 2. Post Anonymously: Post as anonymous without creating an account
 **/
 export default function CreatePostDialog({
     isOpen,
@@ -48,7 +48,7 @@ export default function CreatePostDialog({
                 {/* Dialog description: explains the two options to the user */}
                 <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
                     To save your post and receive credit, please sign up or log in first.
-                    Otherwise, you can post anonymously as "Sammy B. Slug," but your post won't
+                    Otherwise, you can post anonymously, but your post won't
                     be saved to your account.
                 </p>
 
@@ -62,7 +62,7 @@ export default function CreatePostDialog({
                         Sign Up
                     </Link>
 
-                    {/* Post Anonymously Button: calls the parent's handler to post as Sammy B. Slug */}
+                    {/* Post Anonymously Button: calls the parent's handler to post as anonymous */}
                     <button
                         onClick={onPostAnonymously}
                         className="flex-1 rounded bg-zinc-300 py-2 text-center text-black transition-colors hover:bg-zinc-400 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600"

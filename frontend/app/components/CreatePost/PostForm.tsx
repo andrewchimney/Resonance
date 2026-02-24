@@ -72,7 +72,7 @@ export default function PostForm({
                 />
             </div>
 
-            {/* Description: Optional textarea for additional details about the post */}
+            {/* Description: Optional text area for additional details about the post */}
             <div>
                 <label className="block text-sm font-medium text-black dark:text-white mb-1">
                     Description
