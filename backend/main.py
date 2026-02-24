@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import os
 from typing import Optional
 import asyncpg
-from typing import Optional
+
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv 
@@ -222,7 +222,10 @@ async def get_posts(search: Optional[str] = Query(None)):
     """Get all posts with author info"""
     conn = await asyncpg.connect(DATABASE_URL)
     
-    query = """
+    # Base query will always filter by public visibility
+    if search:
+        # Search in title or description 
+        rows = await conn.fetch("""
         SELECT 
             p.id,
             p.owner_user_id,
@@ -238,16 +241,31 @@ async def get_posts(search: Optional[str] = Query(None)):
         FROM posts p
         LEFT JOIN users u ON p.owner_user_id = u.id
         LEFT JOIN presets pr ON p.preset_id = pr.id
-    """
-    
-    if search:
-        query += " WHERE p.title ILIKE $1 OR p.description ILIKE $1"
-        query += " ORDER BY p.created_at DESC"
-        rows = await conn.fetch(query, f"%{search}%")
+        WHERE p.visibility = 'public'
+            AND (p.title ILIKE $1 OR p.description ILIKE $1) 
+        ORDER BY p.created_at DESC    """, f"%{search}%")
     else:
-        query += " ORDER BY p.created_at DESC"
-        rows = await conn.fetch(query)
-    
+        # No search: return all public posts
+        rows = await conn.fetch("""
+        SELECT 
+            p.id,
+            p.owner_user_id,
+            p.preset_id,
+            p.title,
+            p.description,
+            p.visibility,
+            p.created_at,
+            p.votes,
+            u.username as author_username,
+            pr.preview_object_key,
+            pr.preset_object_key
+        FROM posts p
+        LEFT JOIN users u ON p.owner_user_id = u.id
+        LEFT JOIN presets pr ON p.preset_id = pr.id
+        WHERE p.visibility = 'public'
+        ORDER BY p.created_at DESC
+    """)
+        
     await conn.close()
     
     return {
@@ -318,6 +336,10 @@ async def get_post(post_id: str):
 @app.post("/api/posts")
 async def create_post(post: PostCreate, user_id: Optional[str] = Query(None)):
     """Create a new post"""
+    # Check if user is authenticated
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User must be authenticated to create a post")
+    
     conn = await asyncpg.connect(DATABASE_URL)
     
     row = await conn.fetchrow("""
@@ -335,18 +357,33 @@ async def create_post(post: PostCreate, user_id: Optional[str] = Query(None)):
 
 
 @app.delete("/api/posts/{post_id}")
-async def delete_post(post_id: str):
+async def delete_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Delete a post"""
+    # Check if user is authenticated
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User must be authenticated to delete a post")
+    
     conn = await asyncpg.connect(DATABASE_URL)
     
-    result = await conn.execute("""
+    # Verify the user owns this post
+    row = await conn.fetchrow("""
+        SELECT owner_user_id FROM posts WHERE id = $1
+    """, post_id)
+    
+    if not row:
+        await conn.close()
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if str(row["owner_user_id"]) != user_id:
+        await conn.close()
+        raise HTTPException(status_code=403, detail="You can only delete your own posts")
+    
+    # Delete the post
+    await conn.execute("""
         DELETE FROM posts WHERE id = $1
     """, post_id)
     
     await conn.close()
-    
-    if result == "DELETE 0":
-        raise HTTPException(status_code=404, detail="Post not found")
     
     return {"ok": True}
 
@@ -354,7 +391,7 @@ async def delete_post(post_id: str):
 # ==================== VOTES API ====================
 
 @app.post("/api/posts/{post_id}/upvote")
-async def upvote_post(post_id: str):
+async def upvote_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Upvote a post (increment votes)"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -373,7 +410,7 @@ async def upvote_post(post_id: str):
 
 
 @app.post("/api/posts/{post_id}/downvote")
-async def downvote_post(post_id: str):
+async def downvote_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Downvote a post (decrement votes)"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -446,6 +483,9 @@ class CommentCreate(BaseModel):
 @app.post("/api/posts/{post_id}/comments")
 async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional[str] = Query(None)):
     """Create a comment on a post"""
+    # Check if user is authenticated
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User must be authenticated to create a comment")
     conn = await asyncpg.connect(DATABASE_URL)
     
     row = await conn.fetchrow("""
@@ -463,7 +503,7 @@ async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional
 
 
 @app.post("/api/comments/{comment_id}/upvote")
-async def upvote_comment(comment_id: str):
+async def upvote_comment(comment_id: str, user_id: Optional[str] = Query(None)):
     """Upvote a comment"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -482,7 +522,7 @@ async def upvote_comment(comment_id: str):
 
 
 @app.post("/api/comments/{comment_id}/downvote")
-async def downvote_comment(comment_id: str):
+async def downvote_comment(comment_id: str, user_id: Optional[str] = Query(None)):
     """Downvote a comment"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -499,7 +539,30 @@ async def downvote_comment(comment_id: str):
     
     return {"votes": row["votes"]}
 
-
-
-
-
+@app.delete("/api/comments/{comment_id}")
+async def delete_comment(comment_id: str, user_id: Optional[str] = Query(None)):
+    """Delete a comment"""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User must be authenticated to delete a comment")
+    
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    row = await conn.fetchrow("""
+        SELECT owner_user_id FROM comments WHERE id = $1
+    """, comment_id)
+    
+    if not row:
+        await conn.close()
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    if str(row["owner_user_id"]) != user_id:
+        await conn.close()
+        raise HTTPException(status_code=403, detail="You can only delete your own comments")
+    
+    await conn.execute("""
+        DELETE FROM comments WHERE id = $1
+    """, comment_id)
+    
+    await conn.close()
+    
+    return {"ok": True}
