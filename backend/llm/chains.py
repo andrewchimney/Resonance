@@ -15,10 +15,12 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from .providers import get_llm
 
+import pathlib
 
 # ==================== PROMPT TEMPLATES ====================
 
-with open("parameters.txt", "r") as f:
+_HERE = pathlib.Path(__file__).parent
+with open(_HERE / "parameters.txt", "r") as f:
     parameter_list = f.read()
 
 PRESET_GENERATION_SYSTEM = """You are an expert music synthesis assistant specialized in modifying synthesizer preset files in Vital the synthesizer . Your role is to interpret the user's creative or technical intent and translate it into precise parameter changes.
@@ -70,8 +72,8 @@ Provide specific Vital synthesizer parameters to achieve this sound.
 
 Here is the format (JSON ONLY):
 
-{
-  "changes": {
+{{
+  "changes": {{
     "filter_1_cutoff": 85.0,
     "filter_1_resonance": 0.35,
 
@@ -80,7 +82,7 @@ Here is the format (JSON ONLY):
 
     "modulation_1_amount": 0.3,
     "modulation_1_bipolar": 1,
-    "modulation_1_bypass": 0
+    "modulation_1_bypass": 0,
 
     "chorus_on": 1,
     "chorus_dry_wet": 0.3,
@@ -88,9 +90,9 @@ Here is the format (JSON ONLY):
     "eq_high_gain": 3.5,
     "eq_high_cutoff": 8000.0,
     "eq_on": 1
-  },
+  }},
   "explanation": "Filter cutoff was raised and a high shelf EQ boost applied to brighten the overall tone. A slow LFO with a fade-in was added to introduce gradual movement, routed via modulation_1. Light chorus was enabled to add shimmer and width."
-}
+}}
 
 We will only accept outputs in that given format. Do not include any additional text or explanations outside of the JSON object."""
 
