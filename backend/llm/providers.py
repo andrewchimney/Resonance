@@ -62,7 +62,7 @@ def get_provider_config(provider: Optional[str] = None) -> ProviderConfig:
         case LLMProvider.GEMINI:
             return ProviderConfig(
                 provider=provider_enum,
-                model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
                 api_key=os.getenv("GOOGLE_API_KEY"),
                 temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.7")),
                 max_tokens=int(os.getenv("GEMINI_MAX_TOKENS")) if os.getenv("GEMINI_MAX_TOKENS") else None,
