@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 
@@ -48,12 +49,14 @@ const placeholderExamples = [
 ];
 
 export default function GeneratePage() {
+  const router = useRouter();
   const [placeholder] = useState(() => 
     typeof window !== "undefined" 
       ? placeholderExamples[Math.floor(Math.random() * placeholderExamples.length)]
       : ""
   );
   const [user, setUser] = useState<User | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [showAuthPanel, setShowAuthPanel] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -97,6 +100,7 @@ export default function GeneratePage() {
     supabase.auth.getSession().then(({ data }) => {
       if (!isMounted) return;
       setUser(data.session?.user ?? null);
+      setSessionLoading(false);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -371,7 +375,7 @@ export default function GeneratePage() {
                   <div className="flex items-center justify-between mb-3">
                     <div className="text-sm font-semibold text-black dark:text-white">Account</div>
                     <button
-                      className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                      className="hover:cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                       onClick={() => setShowAuthPanel(false)}
                     >
                       Close
@@ -384,21 +388,26 @@ export default function GeneratePage() {
                         Signed in as <span className="font-medium">{user.email}</span>
                       </div>
                       <button
+                        onClick={() => { router.push("/profile"); setShowAuthPanel(false); }}
+                        className="hover:cursor-pointer w-full rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                      >
+                        View Profile
+                      </button>
+                      <button
                         onClick={handleSignOut}
-                        className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                        className="hover:cursor-pointer w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
                       >
                         Sign out
                       </button>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <div className="text-sm text-zinc-700 dark:text-zinc-200">Sign in to continue</div>
                       <button
                         onClick={handleDiscordLogin}
                         disabled={authLoading}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                        className="cursor-pointer flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
                       >
-                        <span aria-hidden>💬</span>
+                        <Image src="/discord_logo.png" alt="Discord" width={18} height={18} className="shrink-0" />
                         {authLoading ? "Redirecting..." : "Continue with Discord"}
                       </button>
                       {authError && <div className="text-xs text-red-600 dark:text-red-400">{authError}</div>}
@@ -447,15 +456,33 @@ export default function GeneratePage() {
               <h1 className="text-4xl font-semibold tracking-tight text-black sm:text-6xl md:text-7xl dark:text-zinc-50">
                 Resonance
               </h1>
-              <form onSubmit={handleSubmit} className="w-full">
-                <input
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder={placeholder}
-                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-6 py-3 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
-                />
-              </form>
+              <div className="relative w-full">
+                <form onSubmit={handleSubmit} className="w-full">
+                  <input
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    placeholder={placeholder}
+                    disabled={!sessionLoading && !user}
+                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-6 py-3 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
+                  />
+                </form>
+                {!sessionLoading && !user && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-[2px]">
+                    {!supabase ? (
+                      <span className="text-sm text-red-600 dark:text-red-400">Supabase not configured</span>
+                    ) : (
+                      <button
+                        onClick={handleDiscordLogin}
+                        disabled={authLoading}
+                        className="flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-60 dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer"
+                      >
+                        {authLoading ? "Redirecting..." : "Sign in to generate"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             // Chat view
