@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
+
 interface Post {
   id: string;
   title: string;
@@ -19,12 +20,8 @@ interface Post {
   preview_object_key: string | null;
 }
 
-<<<<<<< HEAD
 const API_URL = process.env.NEXT_PUBLIC_API_URL 
 const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/public/";
-=======
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
->>>>>>> a30b801f9a8823bf47cf006c9620e0700510a507
 
 export default function BrowsePage() {
   const [user, setUser] = useState<User | null>(null);
@@ -227,17 +224,20 @@ export default function BrowsePage() {
                     </button>
                   </div>
                     {user ? (
-                   <div className="space-y-3">
-                  <button
-                    onClick={() => router.push("/profile")}
-                      className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 w-full"
-                    >
-                    Signed in as <span className="font-medium">{user.email}</span>
-                    </button>
-                    <button
-                    onClick={handleSignOut}
-                  className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-                          >
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100">
+                        Signed in as <span className="font-medium">{user.email}</span>
+                      </div>
+                      <button
+                        onClick={() => { router.push("/profile"); setShowAuthPanel(false); }}
+                        className="hover:cursor-pointer w-full rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                      >
+                        View Profile
+                      </button>
+                      <button
+                        onClick={handleSignOut}
+                        className="hover:cursor-pointer w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                      >
                         Sign out
                       </button>
                     </div>
