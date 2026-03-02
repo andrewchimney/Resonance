@@ -19,12 +19,10 @@ interface Post {
   preview_object_key: string | null;
 }
 
-<<<<<<< HEAD
+import { Comments } from "../components/Comments/Comments";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL 
 const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/public/";
-=======
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
->>>>>>> a30b801f9a8823bf47cf006c9620e0700510a507
 
 export default function BrowsePage() {
   const [user, setUser] = useState<User | null>(null);
@@ -34,6 +32,7 @@ export default function BrowsePage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -117,6 +116,10 @@ export default function BrowsePage() {
       console.error("Error voting:", error);
     }
   };
+
+  const handleToggleComments = (postId: string) => {
+    setExpandedPostId((prev) => (prev === postId ? null : postId));
+  }
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -377,18 +380,32 @@ export default function BrowsePage() {
                       </svg>
                     </button>
 
-                    {/* Comment Button (placeholder for now) */}
-                    <button className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition ml-4">
+                    {/* Comment Toggle Button */}
+                    <button
+                        onClick={() => handleToggleComments(post.id)}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition ml-4 cursor-pointer ${
+                            expandedPostId === post.id
+                                ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
+                                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                        }`}
+                    >
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                         />
                       </svg>
-                      <span>Comments</span>
+                      <span>{expandedPostId === post.id ? "Hide Comments" : "Comments"}</span>
                     </button>
+
+                    {/* Comment Section — only rendered for the expanded post */}
+                    {expandedPostId === post.id && (
+                        <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                          <Comments postId={post.id} user={user} />
+                        </div>
+                    )}
                   </div>
                 </article>
               ))}
