@@ -25,7 +25,7 @@ interface Post {
   author?: {
     username: string;
   } | null;
-  preview_url: string | null;
+  preview_object_key: string | null;
 }
 
 // Backend API endpoints for posts, presets, votes
@@ -143,43 +143,6 @@ export default function BrowsePage() {
     fetchPosts();
   }, [searchQuery]); // Re-run when search query changes
 
-  // Fetch preset data when expanding a post
-  const handleExpandPost = useCallback(async (post: Post) => {
-    // Toggle off if already expanded
-    if (expandedPostId === post.id) {
-      setExpandedPostId(null);
-      return;
-    }
-
-    setExpandedPostId(post.id);
-
-    // Check if we already have the preset data
-    if (presetData[post.id]) return;
-
-    // Fetch preset if we have a preset_id
-    if (!post.preset_id) return;
-
-    setPresetLoading(post.id);
-    try {
-      // Use backend API to fetch preset data
-      const response = await fetch(`${API_URL}/presets/${post.preset_id}/data`);
-      if (!response.ok) {
-        console.error("Preset fetch failed:", response.status, response.statusText);
-        throw new Error("Failed to fetch preset");
-      }
-      
-      const rawPreset: RawVitalPreset = await response.json();
-      const parsed = parseVitalPreset(rawPreset);
-      
-      setPresetData(prev => ({ ...prev, [post.id]: parsed }));
-    } catch (error) {
-      console.error("Error fetching preset:", error);
-      setPresetData(prev => ({ ...prev, [post.id]: null }));
-    } finally {
-      setPresetLoading(null);
-    }
-  }, [expandedPostId, presetData]);
-
   // Handle upvote/downvote via backend API
   const handleVote = async (postId: string, direction: "up" | "down") => {
     if (!user) {
@@ -206,6 +169,38 @@ export default function BrowsePage() {
       console.error("Error voting:", error);
     }
   };
+
+  const handleExpandPost = useCallback(async (post: Post) => {
+    if (expandedPostId === post.id) {
+      setExpandedPostId(null);
+      return;
+    }
+
+    setExpandedPostId(post.id);
+
+    if (presetData[post.id]) return;
+
+    if (!post.preset_id) return;
+
+    setPresetLoading(post.id);
+    try {
+      const response = await fetch(`${API_URL}/presets/${post.preset_id}/data`);
+      if (!response.ok) {
+        console.error("Preset fetch failed:", response.status, response.statusText);
+        throw new Error("Failed to fetch preset");
+      }
+      
+      const rawPreset: RawVitalPreset = await response.json();
+      const parsed = parseVitalPreset(rawPreset);
+      
+      setPresetData(prev => ({ ...prev, [post.id]: parsed }));
+    } catch (error) {
+      console.error("Error fetching preset:", error);
+      setPresetData(prev => ({ ...prev, [post.id]: null }));
+    } finally {
+      setPresetLoading(null);
+    }
+  }, [expandedPostId, presetData]);
 
   // Post Creation Handler
   /**
@@ -543,26 +538,15 @@ export default function BrowsePage() {
                   )}
 
                   {/* Audio Player - from preset's preview */}
-                  {post.preview_url && (
+                  {post.preview_object_key && (
                     <div className="mb-4">
                       <audio
                         controls
                         className="w-full h-10 rounded-lg"
-                        src={post.preview_url}
+                        src={`${STORAGE_URL}${post.preview_object_key}`}
                       >
                         Your browser does not support the audio element.
                       </audio>
-                    </div>
-                  )}
-
-                  {/* Preset Viewer */}
-                  {parsedPresets[post.id] && (
-                    <div className="mb-4">
-                      <PresetViewer 
-                        preset={parsedPresets[post.id]} 
-                        presetName={post.title}
-                        compact
-                      />
                     </div>
                   )}
 
