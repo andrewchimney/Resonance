@@ -126,7 +126,7 @@ export default function GeneratePage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "discord",
       options: {
-        redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined,
       },
     });
 
@@ -241,8 +241,8 @@ export default function GeneratePage() {
             {
               role: "assistant",
               content: isNetworkError
-                ? `Couldn't reach the backend. Make sure it is running on ${API_BASE_URL}?`
-                : "Oops, something went wrong! Please try again later.",
+                ? `Couldn't reach the backend. Is the server running on ${API_BASE_URL}?`
+                : `The modification failed: ${detail}`,
               error: true,
             },
           ];
@@ -510,7 +510,7 @@ export default function GeneratePage() {
                             : "bg-white text-black border-black dark:bg-black dark:text-white dark:border-white"
                         }`}
                       >
-                        <div className={""}>
+                        <div className={message.error ? "text-red-600 dark:text-red-400" : ""}>
                           {message.content}
                         </div>
                         {message.presetChanges && (
