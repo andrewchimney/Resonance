@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
+// import { useRouter } from "next/navigation";
 
 // Added import statement for new LoginPanel component with Discord OAuth authentication (Sprint 4 - User Story 5)
 import LoginPanel from "@/app/components/Authentication/LoginPanel";
@@ -84,7 +84,7 @@ export default function BrowsePage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const router = useRouter();
+  //const router = useRouter();
 
   // Supabase client for auth only
   const supabase = useMemo(() => {
