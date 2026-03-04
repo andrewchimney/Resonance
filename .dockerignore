@@ -5,6 +5,7 @@ tmp_wavs/
 vitals/
 previews/
 presets/
+.tmp
 
 # python
 .venv/
