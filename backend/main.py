@@ -1,25 +1,40 @@
 # Main server file, will process requests and use logic from rag folder to respond to frontend requests
 
 from contextlib import asynccontextmanager
+import json
 import os
 from typing import Optional
 import asyncpg
+import json
+import httpx
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv 
-
 load_dotenv()
+# Legacy Ollama config - now managed by llm/providers.py
+# Use LLM_PROVIDER env var to switch between openai, gemini, ollama
 OLLAMA_BASE_URL = "http://ollama:11434"
 OLLAMA_MODEL = "qwen2.5:7b-instruct"
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import httpx
 
 import laion_clap
 
 
 from rag.retrieve import router as retrieve_router
+from llm import get_llm, get_generation_chain, get_rag_chain
+from llm.providers import check_provider_health, get_provider_config, LLMProvider
+from scripts.modify_preset import apply_patch_dict
+try:
+    from scripts.render import render_preset_to_wav_b64
+    _vita_available = True
+except Exception:
+    _vita_available = False
+    def render_preset_to_wav_b64(*_a, **_kw):  # type: ignore[misc]
+        return None
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -34,13 +49,18 @@ def load_model():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Loading CLAP model")
-    app.state.clap = load_model()
-    print("CLAP model loaded)")
+    try:
+        print("Loading CLAP model...")
+        app.state.clap = load_model()
+        print("CLAP model loaded.")
+    except Exception as exc:
+        print(f"WARNING: CLAP model failed to load ({exc}). Retrieval will be unavailable.")
+        app.state.clap = None
 
     yield
-    
-    del app.state.clap
+
+    if getattr(app.state, "clap", None) is not None:
+        del app.state.clap
 
 
 app = FastAPI(lifespan=lifespan)
@@ -56,6 +76,14 @@ if ENV == "dev":
         allow_methods=["*"],
         allow_headers=["*"],
     )
+else:
+    app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Pydantic models for request/response
 class PostCreate(BaseModel):
@@ -67,14 +95,241 @@ class PostCreate(BaseModel):
 class ReactionCreate(BaseModel):
     reaction_type: str  # "like" or "dislike"
 
+# Pydantic models for LLM endpoints
+class GenerateRequest(BaseModel):
+    description: str
+    context: Optional[str] = None
+    provider: Optional[str] = None  # "openai", "gemini", or "ollama"
+    stream: bool = False
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[list] = None
+    provider: Optional[str] = None
+
+
+class ModifyPresetRequest(BaseModel):
+    preset_id: Optional[str] = None
+    preset_data: Optional[dict] = None
+    description: str
+    context: Optional[str] = None
+    provider: Optional[str] = None
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
 
 
+# ==================== LLM API ====================
+
+@app.get("/api/llm/health")
+async def llm_health(provider: Optional[str] = Query(None)):
+    """Check if the LLM provider is available and responding"""
+    result = await check_provider_health(provider)
+    return result
+
+
+@app.get("/api/llm/config")
+def llm_config():
+    """Get current LLM configuration"""
+    config = get_provider_config()
+    return {
+        "provider": config.provider.value,
+        "model": config.model,
+        "temperature": config.temperature,
+        "base_url": config.base_url if config.provider == LLMProvider.OLLAMA else None,
+    }
+
+
+@app.get("/api/llm/providers")
+def list_providers():
+    """List available LLM providers"""
+    return {
+        "providers": [
+            {
+                "id": "openai",
+                "name": "OpenAI",
+                "models": ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+                "requires_api_key": True,
+                "env_var": "OPENAI_API_KEY",
+            },
+            {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "models": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"],
+                "requires_api_key": True,
+                "env_var": "GOOGLE_API_KEY",
+            },
+            {
+                "id": "ollama", 
+                "name": "Ollama (Local)",
+                "models": ["qwen2.5:7b-instruct", "llama3", "mistral", "codellama"],
+                "requires_api_key": False,
+                "env_var": None,
+            },
+        ],
+        "current": get_provider_config().provider.value,
+    }
+
+
+@app.post("/api/generate")
+async def generate_preset(req: GenerateRequest):
+    """Generate preset suggestions from a text description"""
+    try:
+        chain = get_generation_chain(provider=req.provider)
+        
+        if req.stream:
+            # Streaming response
+            async def generate_stream():
+                async for chunk in chain.astream({
+                    "description": req.description,
+                    "context": req.context or ""
+                }):
+                    yield chunk
+            
+            return StreamingResponse(
+                generate_stream(),
+                media_type="text/plain"
+            )
+        else:
+            # Non-streaming response
+            result = await chain.ainvoke({
+                "description": req.description,
+                "context": req.context or ""
+            })
+            # Strip markdown code fences if the LLM wraps its output
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                if cleaned.rstrip().endswith("```"):
+                    cleaned = cleaned.rstrip()[:-3].rstrip()
+            return {"result": cleaned}
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+@app.post("/api/modify-preset")
+async def modify_preset_endpoint(req: ModifyPresetRequest):
+    """Apply LLM-generated parameter changes to a Vital preset"""
+    try:
+        # --- 1. Resolve base preset data ---
+        if req.preset_data is not None:
+            base_preset = req.preset_data
+        elif req.preset_id is not None:
+            conn = await asyncpg.connect(DATABASE_URL)
+            row = await conn.fetchrow(
+                "SELECT preset_object_key FROM presets WHERE id = $1", req.preset_id
+            )
+            await conn.close()
+            if not row or not row["preset_object_key"]:
+                raise HTTPException(status_code=404, detail="Preset not found")
+            preset_url = f"{PRESETS_BUCKET}/{row['preset_object_key']}"
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(preset_url)
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        status_code=resp.status_code,
+                        detail=f"Failed to fetch preset from storage: {resp.status_code}",
+                    )
+                base_preset = resp.json()
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either preset_id or preset_data must be provided",
+            )
+
+        # --- 2. Run LLM chain ---
+        chain = get_generation_chain(provider=req.provider)
+        preset_context = json.dumps(base_preset.get("settings", {}), indent=2)
+        result = await chain.ainvoke({
+            "description": req.description,
+            "context": preset_context,
+        })
+
+        # --- 3. Parse JSON output ---
+        # Strip markdown code fences if present (e.g. ```json ... ```)
+        try:
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                # Remove opening fence (```json or ```)
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                # Remove closing fence
+                if cleaned.rstrip().endswith("```"):
+                    cleaned = cleaned.rstrip()[:-3].rstrip()
+            parsed = json.loads(cleaned)
+            changes = parsed.get("changes", {})
+            explanation = parsed.get("explanation", "")
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=500,
+                detail=f"LLM returned invalid JSON: {result}",
+            )
+
+        # --- 4. Apply patch in-memory ---
+        modified_preset = apply_patch_dict(base_preset, changes)
+
+        # --- 5. Render audio preview ---
+        import asyncio
+        loop = asyncio.get_event_loop()
+        audio_b64: str | None = await loop.run_in_executor(
+            None, render_preset_to_wav_b64, modified_preset
+        )
+
+        # --- 6. Return ---
+        return {
+            "modified_preset": modified_preset,
+            "changes": changes,
+            "explanation": explanation,
+            "audio_b64": audio_b64,
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Modification failed: {str(e)}")
+
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest):
+    """Chat with the LLM assistant"""
+    try:
+        from llm.chains import get_chat_chain
+        
+        chain = get_chat_chain(provider=req.provider)
+        
+        # Format history for the chain
+        messages = []
+        if req.history:
+            for msg in req.history:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        
+        result = await chain.ainvoke({
+            "messages": messages,
+            "input": req.message
+        })
+        
+        return {"response": result}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+
+
 class RetrieveRequest(BaseModel):
     query: str
     k: int = 10
+
 
 app.include_router(retrieve_router)
 
@@ -166,47 +421,6 @@ async def get_user_id(id: str):
 
 # Generate
 # 	•	POST /api/generate
-
-
-# ==================== PRESET DATA API ====================
-
-@app.get("/api/presets/{preset_id}/data")
-async def get_preset_data(preset_id: str):
-    """Fetch the .vital preset JSON data from Supabase storage"""
-    conn = await asyncpg.connect(DATABASE_URL)
-    
-    # Get the preset_object_key from the database
-    row = await conn.fetchrow("""
-        SELECT preset_object_key FROM presets WHERE id = $1
-    """, preset_id)
-    
-    await conn.close()
-    
-    if not row or not row["preset_object_key"]:
-        raise HTTPException(status_code=404, detail="Preset not found")
-    
-    preset_object_key = row["preset_object_key"]
-    
-    # Fetch the preset file from Supabase storage
-    preset_url = f"{PRESETS_BUCKET}/{preset_object_key}"
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.get(preset_url)
-        
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code, 
-                detail=f"Failed to fetch preset from storage: {response.status_code}"
-            )
-        
-        return response.json()
-
-
-def get_preview_url(preview_object_key: str | None) -> str | None:
-    """Build the full preview URL from the object key"""
-    if not preview_object_key or not PREVIEWS_BUCKET:
-        return None
-    return f"{PREVIEWS_BUCKET}/{preview_object_key}"
 
 
 # ==================== POSTS API ====================
@@ -361,6 +575,8 @@ async def upvote_post(post_id: str):
     await conn.close()
     
     if not row:
+
+
         raise HTTPException(status_code=404, detail="Post not found")
     
     return {"votes": row["votes"]}
@@ -494,6 +710,369 @@ async def downvote_comment(comment_id: str):
     return {"votes": row["votes"]}
 
 
+# ==================== CONVO API ====================
+#Conversation holds presets generated during a chat convo
+class ConversationCreate(BaseModel):
+    title: Optional[str] = None
 
 
+class ConversationPresetCreate(BaseModel):
+    title: str
+    supabase_key: str
+    preset_object_key: str
+    preview_object_key: Optional[str] = None
+    visibility: Optional[str] = "public"
+    source: Optional[str] = "generation"
 
+
+@app.post("/api/conversations")
+async def create_conversation(conv: ConversationCreate, user_id: Optional[str] = Query(None)):
+    conn = await asyncpg.connect(DATABASE_URL)
+    row = await conn.fetchrow(
+        """
+        INSERT INTO conversations (owner_user_id, title)
+        VALUES ($1, $2)
+        RETURNING id, created_at
+        """,
+        user_id,
+        conv.title,
+    )
+    await conn.close()
+
+    return {
+        "id": str(row["id"]),
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
+
+
+@app.post("/api/conversations/{conversation_id}/presets")
+async def add_conversation_preset(conversation_id: str, payload: ConversationPresetCreate, user_id: Optional[str] = Query(None)):
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    # Check current preset count for this conversation
+    count_result = await conn.fetchval(
+        "SELECT COUNT(*) FROM conversation_presets WHERE conversation_id = $1",
+        conversation_id,
+    )
+    
+    # Eviction policy, oldest gone, fifo
+    if count_result >= 10:
+        await conn.execute(
+            """
+            DELETE FROM conversation_presets
+            WHERE conversation_id = $1 AND id = (
+                SELECT id FROM conversation_presets
+                WHERE conversation_id = $1
+                ORDER BY created_at ASC
+                LIMIT 1
+            )
+            """,
+            conversation_id,
+        )
+    
+    # Insert new preset
+    row = await conn.fetchrow(
+        """
+        INSERT INTO conversation_presets (conversation_id, owner_user_id, title, visibility, supabase_key, preset_object_key, preview_object_key, source)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, created_at
+        """,
+        conversation_id,
+        user_id,
+        payload.title,
+        payload.visibility,
+        payload.supabase_key,
+        payload.preset_object_key,
+        payload.preview_object_key,
+        payload.source,
+    )
+    await conn.close()
+
+    return {
+        "id": str(row["id"]),
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
+
+
+@app.get("/api/conversations/{conversation_id}/presets")
+async def list_conversation_presets(conversation_id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    rows = await conn.fetch(
+        """
+        SELECT id, owner_user_id, title, visibility, preset_object_key, preview_object_key, source, created_at
+        FROM conversation_presets
+        WHERE conversation_id = $1
+        ORDER BY created_at ASC
+        """,
+        conversation_id,
+    )
+    await conn.close()
+
+    return {
+        "presets": [
+            {
+                "id": str(r["id"]),
+                "owner_user_id": str(r["owner_user_id"]) if r["owner_user_id"] else None,
+                "title": r["title"],
+                "visibility": r["visibility"],
+                "preset_object_key": r["preset_object_key"],
+                "preview_object_key": r["preview_object_key"],
+                "source": r["source"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+    }
+
+@app.delete("/api/conversations/{conversation_id}/presets/{preset_id}")
+async def delete_conversation_preset(conversation_id: str, preset_id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            """
+            DELETE FROM conversation_presets
+            WHERE conversation_id = $1 AND id = $2
+            """,
+            conversation_id,
+            preset_id,
+        )
+    finally:
+        await conn.close()
+
+##To do, go into schema and change the cascade options so when a convo is deleted, the entire
+#presets associated with it are also deleted.
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute(
+            """
+            DELETE FROM conversations
+            WHERE id = $1
+            """,
+            conversation_id,
+        )
+    finally:
+        await conn.close()
+
+
+# ==================== SAVED PRESETS API ====================
+
+class SavedPresetCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    supabase_key: str
+    preset_object_key: str
+    preview_object_key: Optional[str] = None
+    visibility: Optional[str] = "public"
+    source: Optional[str] = "saved"
+    creator_user_id: Optional[str] = None
+
+
+@app.post("/api/users/{user_id}/saved-presets")
+async def save_preset(user_id: str, payload: SavedPresetCreate):
+    conn = await asyncpg.connect(DATABASE_URL)
+    row = await conn.fetchrow(
+        """
+        INSERT INTO saved_presets (owner_user_id, creator_user_id, title, description, visibility, supabase_key, preset_object_key, preview_object_key, source)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id, created_at
+        """,
+        user_id,
+        payload.creator_user_id,
+        payload.title,
+        payload.description,
+        payload.visibility,
+        payload.supabase_key,
+        payload.preset_object_key,
+        payload.preview_object_key,
+        payload.source,
+    )
+    await conn.close()
+
+    return {
+        "id": str(row["id"]),
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
+
+
+@app.get("/api/users/{user_id}/saved-presets")
+async def list_saved_presets(user_id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    rows = await conn.fetch(
+        """
+        SELECT id, owner_user_id, creator_user_id, title, description, visibility, preset_object_key, preview_object_key, source, created_at
+        FROM saved_presets
+        WHERE owner_user_id = $1
+        ORDER BY created_at DESC
+        """,
+        user_id,
+    )
+    await conn.close()
+
+    return {
+        "presets": [
+            {
+                "id": str(r["id"]),
+                "owner_user_id": str(r["owner_user_id"]),
+                "creator_user_id": str(r["creator_user_id"]) if r["creator_user_id"] else None,
+                "title": r["title"],
+                "description": r["description"],
+                "visibility": r["visibility"],
+                "preset_object_key": r["preset_object_key"],
+                "preview_object_key": r["preview_object_key"],
+                "source": r["source"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.get("/api/users/{user_id}/saved-presets/{preset_id}")
+async def get_saved_preset(user_id: str, preset_id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    row = await conn.fetchrow(
+        """
+        SELECT id, owner_user_id, creator_user_id, title, description, visibility, preset_object_key, preview_object_key, source, created_at
+        FROM saved_presets
+        WHERE owner_user_id = $1 AND id = $2
+        """,
+        user_id,
+        preset_id,
+    )
+    await conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Saved preset not found")
+
+    return {
+        "id": str(row["id"]),
+        "owner_user_id": str(row["owner_user_id"]),
+        "creator_user_id": str(row["creator_user_id"]) if row["creator_user_id"] else None,
+        "title": row["title"],
+        "description": row["description"],
+        "visibility": row["visibility"],
+        "preset_object_key": row["preset_object_key"],
+        "preview_object_key": row["preview_object_key"],
+        "source": row["source"],
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
+
+
+@app.delete("/api/users/{user_id}/saved-presets/{preset_id}")
+async def delete_saved_preset(user_id: str, preset_id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    result = await conn.execute(
+        """
+        DELETE FROM saved_presets
+        WHERE owner_user_id = $1 AND id = $2
+        """,
+        user_id,
+        preset_id,
+    )
+    await conn.close()
+
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Saved preset not found")
+
+    return {"ok": True}
+
+
+# ==================== PRESET DATA API ====================
+
+@app.get("/api/presets/{preset_id}/data")
+async def get_preset_data(preset_id: str):
+    """Fetch the .vital preset JSON data from Supabase storage"""
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    # Get the preset_object_key from the database
+    row = await conn.fetchrow("""
+        SELECT preset_object_key FROM presets WHERE id = $1
+    """, preset_id)
+    
+    await conn.close()
+    
+    if not row or not row["preset_object_key"]:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    
+    preset_object_key = row["preset_object_key"]
+    preset_url = f"{PRESETS_BUCKET}/{preset_object_key}"
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(preset_url)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Failed to fetch preset from storage: {response.status_code}"
+            )
+        
+        return response.json()
+
+
+@app.get("/api/saved-presets/{user_id}/{preset_id}/data")
+async def get_saved_preset_data(user_id: str, preset_id: str):
+    """Fetch the .vital preset JSON data for a saved preset from Supabase storage"""
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    # Get the preset_object_key from the database
+    row = await conn.fetchrow("""
+        SELECT preset_object_key FROM saved_presets WHERE id = $1 AND owner_user_id = $2
+    """, preset_id, user_id)
+    
+    await conn.close()
+    
+    if not row or not row["preset_object_key"]:
+        raise HTTPException(status_code=404, detail="Saved preset not found")
+    
+    preset_object_key = row["preset_object_key"]
+    preset_url = f"{PRESETS_BUCKET}/{preset_object_key}"
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(preset_url)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Failed to fetch preset from storage: {response.status_code}"
+            )
+        
+        return response.json()
+
+
+@app.get("/api/conversations/{conversation_id}/presets/{preset_id}/data")
+async def get_conversation_preset_data(conversation_id: str, preset_id: str):
+    """Fetch the .vital preset JSON data for a conversation preset from Supabase storage"""
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    # Get the preset_object_key from the database
+    row = await conn.fetchrow("""
+        SELECT preset_object_key FROM conversation_presets WHERE id = $1 AND conversation_id = $2
+    """, preset_id, conversation_id)
+    
+    await conn.close()
+    
+    if not row or not row["preset_object_key"]:
+        raise HTTPException(status_code=404, detail="Conversation preset not found")
+    
+    preset_object_key = row["preset_object_key"]
+    preset_url = f"{PRESETS_BUCKET}/{preset_object_key}"
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(preset_url)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Failed to fetch preset from storage: {response.status_code}"
+            )
+        
+        return response.json()
+
+
+def get_preview_url(preview_object_key: str | None) -> str | None:
+    """Build the full preview URL from the object key"""
+    if not preview_object_key or not PREVIEWS_BUCKET:
+        return None
+    return f"{PREVIEWS_BUCKET}/{preview_object_key}"
