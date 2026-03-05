@@ -1,25 +1,37 @@
 # Main server file, will process requests and use logic from rag folder to respond to frontend requests
 
 from contextlib import asynccontextmanager
+import json
 import os
 from typing import Optional
 import asyncpg
-import json
-import httpx
-from typing import Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv 
 load_dotenv()
+# Legacy Ollama config - now managed by llm/providers.py
+# Use LLM_PROVIDER env var to switch between openai, gemini, ollama
 OLLAMA_BASE_URL = "http://ollama:11434"
 OLLAMA_MODEL = "qwen2.5:7b-instruct"
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+import httpx
 
 import laion_clap
 
 
 from rag.retrieve import router as retrieve_router
+from llm import get_llm, get_generation_chain, get_rag_chain
+from llm.providers import check_provider_health, get_provider_config, LLMProvider
+from scripts.modify_preset import apply_patch_dict
+try:
+    from scripts.render import render_preset_to_wav_b64
+    _vita_available = True
+except Exception:
+    _vita_available = False
+    def render_preset_to_wav_b64(*_a, **_kw):  # type: ignore[misc]
+        return None
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -34,13 +46,18 @@ def load_model():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Loading CLAP model")
-    app.state.clap = load_model()
-    print("CLAP model loaded)")
+    try:
+        print("Loading CLAP model...")
+        app.state.clap = load_model()
+        print("CLAP model loaded.")
+    except Exception as exc:
+        print(f"WARNING: CLAP model failed to load ({exc}). Retrieval will be unavailable.")
+        app.state.clap = None
 
     yield
-    
-    del app.state.clap
+
+    if getattr(app.state, "clap", None) is not None:
+        del app.state.clap
 
 
 app = FastAPI(lifespan=lifespan)
@@ -56,6 +73,14 @@ if ENV == "dev":
         allow_methods=["*"],
         allow_headers=["*"],
     )
+else:
+    app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Pydantic models for request/response
 class PostCreate(BaseModel):
@@ -67,14 +92,241 @@ class PostCreate(BaseModel):
 class ReactionCreate(BaseModel):
     reaction_type: str  # "like" or "dislike"
 
+# Pydantic models for LLM endpoints
+class GenerateRequest(BaseModel):
+    description: str
+    context: Optional[str] = None
+    provider: Optional[str] = None  # "openai", "gemini", or "ollama"
+    stream: bool = False
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[list] = None
+    provider: Optional[str] = None
+
+
+class ModifyPresetRequest(BaseModel):
+    preset_id: Optional[str] = None
+    preset_data: Optional[dict] = None
+    description: str
+    context: Optional[str] = None
+    provider: Optional[str] = None
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
 
 
+# ==================== LLM API ====================
+
+@app.get("/api/llm/health")
+async def llm_health(provider: Optional[str] = Query(None)):
+    """Check if the LLM provider is available and responding"""
+    result = await check_provider_health(provider)
+    return result
+
+
+@app.get("/api/llm/config")
+def llm_config():
+    """Get current LLM configuration"""
+    config = get_provider_config()
+    return {
+        "provider": config.provider.value,
+        "model": config.model,
+        "temperature": config.temperature,
+        "base_url": config.base_url if config.provider == LLMProvider.OLLAMA else None,
+    }
+
+
+@app.get("/api/llm/providers")
+def list_providers():
+    """List available LLM providers"""
+    return {
+        "providers": [
+            {
+                "id": "openai",
+                "name": "OpenAI",
+                "models": ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+                "requires_api_key": True,
+                "env_var": "OPENAI_API_KEY",
+            },
+            {
+                "id": "gemini",
+                "name": "Google Gemini",
+                "models": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"],
+                "requires_api_key": True,
+                "env_var": "GOOGLE_API_KEY",
+            },
+            {
+                "id": "ollama", 
+                "name": "Ollama (Local)",
+                "models": ["qwen2.5:7b-instruct", "llama3", "mistral", "codellama"],
+                "requires_api_key": False,
+                "env_var": None,
+            },
+        ],
+        "current": get_provider_config().provider.value,
+    }
+
+
+@app.post("/api/generate")
+async def generate_preset(req: GenerateRequest):
+    """Generate preset suggestions from a text description"""
+    try:
+        chain = get_generation_chain(provider=req.provider)
+        
+        if req.stream:
+            # Streaming response
+            async def generate_stream():
+                async for chunk in chain.astream({
+                    "description": req.description,
+                    "context": req.context or ""
+                }):
+                    yield chunk
+            
+            return StreamingResponse(
+                generate_stream(),
+                media_type="text/plain"
+            )
+        else:
+            # Non-streaming response
+            result = await chain.ainvoke({
+                "description": req.description,
+                "context": req.context or ""
+            })
+            # Strip markdown code fences if the LLM wraps its output
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                if cleaned.rstrip().endswith("```"):
+                    cleaned = cleaned.rstrip()[:-3].rstrip()
+            return {"result": cleaned}
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+@app.post("/api/modify-preset")
+async def modify_preset_endpoint(req: ModifyPresetRequest):
+    """Apply LLM-generated parameter changes to a Vital preset"""
+    try:
+        # --- 1. Resolve base preset data ---
+        if req.preset_data is not None:
+            base_preset = req.preset_data
+        elif req.preset_id is not None:
+            conn = await asyncpg.connect(DATABASE_URL)
+            row = await conn.fetchrow(
+                "SELECT preset_object_key FROM presets WHERE id = $1", req.preset_id
+            )
+            await conn.close()
+            if not row or not row["preset_object_key"]:
+                raise HTTPException(status_code=404, detail="Preset not found")
+            preset_url = f"{PRESETS_BUCKET}/{row['preset_object_key']}"
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(preset_url)
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        status_code=resp.status_code,
+                        detail=f"Failed to fetch preset from storage: {resp.status_code}",
+                    )
+                base_preset = resp.json()
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either preset_id or preset_data must be provided",
+            )
+
+        # --- 2. Run LLM chain ---
+        chain = get_generation_chain(provider=req.provider)
+        preset_context = json.dumps(base_preset.get("settings", {}), indent=2)
+        result = await chain.ainvoke({
+            "description": req.description,
+            "context": preset_context,
+        })
+
+        # --- 3. Parse JSON output ---
+        # Strip markdown code fences if present (e.g. ```json ... ```)
+        try:
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                # Remove opening fence (```json or ```)
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                # Remove closing fence
+                if cleaned.rstrip().endswith("```"):
+                    cleaned = cleaned.rstrip()[:-3].rstrip()
+            parsed = json.loads(cleaned)
+            changes = parsed.get("changes", {})
+            explanation = parsed.get("explanation", "")
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=500,
+                detail=f"LLM returned invalid JSON: {result}",
+            )
+
+        # --- 4. Apply patch in-memory ---
+        modified_preset = apply_patch_dict(base_preset, changes)
+
+        # --- 5. Render audio preview ---
+        import asyncio
+        loop = asyncio.get_event_loop()
+        audio_b64: str | None = await loop.run_in_executor(
+            None, render_preset_to_wav_b64, modified_preset
+        )
+
+        # --- 6. Return ---
+        return {
+            "modified_preset": modified_preset,
+            "changes": changes,
+            "explanation": explanation,
+            "audio_b64": audio_b64,
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Modification failed: {str(e)}")
+
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest):
+    """Chat with the LLM assistant"""
+    try:
+        from llm.chains import get_chat_chain
+        
+        chain = get_chat_chain(provider=req.provider)
+        
+        # Format history for the chain
+        messages = []
+        if req.history:
+            for msg in req.history:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        
+        result = await chain.ainvoke({
+            "messages": messages,
+            "input": req.message
+        })
+        
+        return {"response": result}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+
+
 class RetrieveRequest(BaseModel):
     query: str
     k: int = 10
+
 
 app.include_router(retrieve_router)
 
@@ -175,7 +427,10 @@ async def get_posts(search: Optional[str] = Query(None)):
     """Get all posts with author info"""
     conn = await asyncpg.connect(DATABASE_URL)
     
-    query = """
+    # Base query will always filter by public visibility
+    if search:
+        # Search in title or description 
+        rows = await conn.fetch("""
         SELECT 
             p.id,
             p.owner_user_id,
@@ -191,16 +446,31 @@ async def get_posts(search: Optional[str] = Query(None)):
         FROM posts p
         LEFT JOIN users u ON p.owner_user_id = u.id
         LEFT JOIN presets pr ON p.preset_id = pr.id
-    """
-    
-    if search:
-        query += " WHERE p.title ILIKE $1 OR p.description ILIKE $1"
-        query += " ORDER BY p.created_at DESC"
-        rows = await conn.fetch(query, f"%{search}%")
+        WHERE p.visibility = 'public'
+            AND (p.title ILIKE $1 OR p.description ILIKE $1) 
+        ORDER BY p.created_at DESC    """, f"%{search}%")
     else:
-        query += " ORDER BY p.created_at DESC"
-        rows = await conn.fetch(query)
-    
+        # No search: return all public posts
+        rows = await conn.fetch("""
+        SELECT 
+            p.id,
+            p.owner_user_id,
+            p.preset_id,
+            p.title,
+            p.description,
+            p.visibility,
+            p.created_at,
+            p.votes,
+            u.username as author_username,
+            pr.preview_object_key,
+            pr.preset_object_key
+        FROM posts p
+        LEFT JOIN users u ON p.owner_user_id = u.id
+        LEFT JOIN presets pr ON p.preset_id = pr.id
+        WHERE p.visibility = 'public'
+        ORDER BY p.created_at DESC
+    """)
+        
     await conn.close()
     
     return {
@@ -273,11 +543,14 @@ async def create_post(post: PostCreate, user_id: Optional[str] = Query(None)):
     """Create a new post"""
     conn = await asyncpg.connect(DATABASE_URL)
     
+    # Allow posts from authenticated users or anonymous users
+    owner_id = user_id if user_id else None
+
     row = await conn.fetchrow("""
         INSERT INTO posts (owner_user_id, title, description, preset_id, visibility, votes)
         VALUES ($1, $2, $3, $4, $5, 0)
         RETURNING id, created_at
-    """, user_id, post.title, post.description, post.preset_id, post.visibility)
+    """, owner_id, post.title, post.description, post.preset_id, post.visibility)
     
     await conn.close()
     
@@ -288,18 +561,33 @@ async def create_post(post: PostCreate, user_id: Optional[str] = Query(None)):
 
 
 @app.delete("/api/posts/{post_id}")
-async def delete_post(post_id: str):
+async def delete_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Delete a post"""
+    # Check if user is authenticated
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User must be authenticated to delete a post")
+    
     conn = await asyncpg.connect(DATABASE_URL)
     
-    result = await conn.execute("""
+    # Verify the user owns this post
+    row = await conn.fetchrow("""
+        SELECT owner_user_id FROM posts WHERE id = $1
+    """, post_id)
+    
+    if not row:
+        await conn.close()
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if str(row["owner_user_id"]) != user_id:
+        await conn.close()
+        raise HTTPException(status_code=403, detail="You can only delete your own posts")
+    
+    # Delete the post
+    await conn.execute("""
         DELETE FROM posts WHERE id = $1
     """, post_id)
     
     await conn.close()
-    
-    if result == "DELETE 0":
-        raise HTTPException(status_code=404, detail="Post not found")
     
     return {"ok": True}
 
@@ -307,7 +595,7 @@ async def delete_post(post_id: str):
 # ==================== VOTES API ====================
 
 @app.post("/api/posts/{post_id}/upvote")
-async def upvote_post(post_id: str):
+async def upvote_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Upvote a post (increment votes)"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -328,7 +616,7 @@ async def upvote_post(post_id: str):
 
 
 @app.post("/api/posts/{post_id}/downvote")
-async def downvote_post(post_id: str):
+async def downvote_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Downvote a post (decrement votes)"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -401,13 +689,16 @@ class CommentCreate(BaseModel):
 @app.post("/api/posts/{post_id}/comments")
 async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional[str] = Query(None)):
     """Create a comment on a post"""
+    # Allow comments from authenticated users or anonymous users
     conn = await asyncpg.connect(DATABASE_URL)
+
+    owner_id = user_id if user_id else None
     
     row = await conn.fetchrow("""
         INSERT INTO comments (post_id, owner_user_id, body, preset_id, visibility, votes)
         VALUES ($1, $2, $3, $4, $5, 0)
         RETURNING id, created_at
-    """, post_id, user_id, comment.body, comment.preset_id, comment.visibility)
+    """, post_id, owner_id, comment.body, comment.preset_id, comment.visibility)
     
     await conn.close()
     
@@ -418,7 +709,7 @@ async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional
 
 
 @app.post("/api/comments/{comment_id}/upvote")
-async def upvote_comment(comment_id: str):
+async def upvote_comment(comment_id: str, user_id: Optional[str] = Query(None)):
     """Upvote a comment"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -437,7 +728,7 @@ async def upvote_comment(comment_id: str):
 
 
 @app.post("/api/comments/{comment_id}/downvote")
-async def downvote_comment(comment_id: str):
+async def downvote_comment(comment_id: str, user_id: Optional[str] = Query(None)):
     """Downvote a comment"""
     conn = await asyncpg.connect(DATABASE_URL)
     
@@ -454,6 +745,33 @@ async def downvote_comment(comment_id: str):
     
     return {"votes": row["votes"]}
 
+@app.delete("/api/comments/{comment_id}")
+async def delete_comment(comment_id: str, user_id: Optional[str] = Query(None)):
+    """Delete a comment"""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User must be authenticated to delete a comment")
+    
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    row = await conn.fetchrow("""
+        SELECT owner_user_id FROM comments WHERE id = $1
+    """, comment_id)
+    
+    if not row:
+        await conn.close()
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    if str(row["owner_user_id"]) != user_id:
+        await conn.close()
+        raise HTTPException(status_code=403, detail="You can only delete your own comments")
+    
+    await conn.execute("""
+        DELETE FROM comments WHERE id = $1
+    """, comment_id)
+    
+    await conn.close()
+    
+    return {"ok": True}
 
 # ==================== CONVO API ====================
 #Conversation holds presets generated during a chat convo

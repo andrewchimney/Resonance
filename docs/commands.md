@@ -36,3 +36,9 @@ systemctl status ollama
 ollama serve
 ollama list
 curl -s http://170.9.30.159:11434/api/generate \  -H "Content-Type: application/json" \  -d '{"model":"qwen2.5:7b-instruct","prompt":"I need to edit a .vital file can you help me?","stream":false}'
+
+
+
+
+(.venv) MacBook-Pro:SynthGPT Andrew$ curl -X POST "http://localhost:8000/api/userrecommend"   -H "Content-Type: application/json"   -d '{"user_uuid":"383f963e-0d54-468a-a083-3a0e6ad5ce91","k":10}'
+{"user_uuid":"383f963e-0d54-468a-a083-3a0e6ad5ce91","k":10,"results":[{"id":"e1ed7c60-59d9-4304-9429-d05a68d57d67","owner_user_id":"383f963e-0d54-468a-a083-3a0e6ad5ce91","title":"Crazy a bot did this lmao","description":"I'm lowkey surprised about this","similarity":0.225499391555786}]}(.venv) MacBook-Pro
