@@ -1,5 +1,5 @@
 # Main server file, will process requests and use logic from rag folder to respond to frontend requests
-
+from supabase import create_client
 from contextlib import asynccontextmanager
 import json
 import os
@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 import httpx
 
 import laion_clap
+import numpy as np
 
 
 from rag.retrieve import router as retrieve_router
@@ -37,6 +38,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 PRESETS_BUCKET = os.getenv("PRESETS_BUCKET")
 PREVIEWS_BUCKET = os.getenv("PREVIEWS_BUCKET")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 def load_model():
@@ -420,6 +423,140 @@ async def get_user_id(id: str):
 # 	•	POST /api/generate
 
 
+
+
+@app.get("/api/feed")
+async def get_feed(
+    type: str = "new",
+    user_uuid: Optional[str] = None,
+    search: Optional[str] = Query(None)
+):
+    conn = await asyncpg.connect(DATABASE_URL)
+
+    try:
+        if type == "new":
+            if search:
+                rows = await conn.fetch("""
+                    SELECT *
+                    FROM posts
+                    WHERE visibility = 'public'
+                      AND (title ILIKE $1 OR description ILIKE $1)
+                    ORDER BY created_at DESC
+                """, f"%{search}%")
+            else:
+                rows = await conn.fetch("""
+                    SELECT *
+                    FROM posts
+                    WHERE visibility = 'public'
+                    ORDER BY created_at DESC
+                """)
+
+        elif type == "trending":
+            if search:
+                rows = await conn.fetch("""
+                    SELECT *,
+                    votes / POW(EXTRACT(EPOCH FROM (NOW() - created_at))/3600 + 2, 1.5) AS score
+                    FROM posts
+                    WHERE visibility = 'public'
+                      AND (title ILIKE $1 OR description ILIKE $1)
+                    ORDER BY score DESC
+                """, f"%{search}%")
+            else:
+                rows = await conn.fetch("""
+                    SELECT *,
+                    votes / POW(EXTRACT(EPOCH FROM (NOW() - created_at))/3600 + 2, 1.5) AS score
+                    FROM posts
+                    WHERE visibility = 'public'
+                    ORDER BY score DESC
+                """)
+
+        elif type == "recommended":
+            if not user_uuid:
+                return {"error": "user_uuid is required for recommended feed"}
+
+            saved = (
+                supabase
+                .table("saved_presets")
+                .select("id, owner_user_id, preset_uuid")
+                .eq("owner_user_id", str(user_uuid))
+                .execute()
+            )
+
+            preset_ids = [row["preset_uuid"] for row in (saved.data or []) if row.get("preset_uuid")]
+            if not preset_ids:
+                return {
+                    "feed": type,
+                    "user_uuid": user_uuid,
+                    "posts": [],
+                    "message": "no saved presets"
+                }
+
+            pres = (
+                supabase
+                .table("presets")
+                .select("id, embedding")
+                .in_("id", preset_ids)
+                .execute()
+            )
+
+            vectors = []
+            for r in (pres.data or []):
+                e = r.get("embedding")
+                if e is None:
+                    continue
+
+                if isinstance(e, str):
+                    e = e.strip()
+                    if e.startswith("[") and e.endswith("]"):
+                        e = np.fromstring(e[1:-1], sep=",", dtype=np.float32)
+                    else:
+                        continue
+                else:
+                    e = np.asarray(e, dtype=np.float32)
+
+                vectors.append(e)
+
+            if not vectors:
+                return {
+                    "feed": type,
+                    "user_uuid": user_uuid,
+                    "posts": [],
+                    "message": "no embeddings found for saved presets"
+                }
+
+            mat = np.vstack(vectors)
+            avg = mat.mean(axis=0)
+            avg = avg / (np.linalg.norm(avg) + 1e-9)
+            avg_list = avg.tolist()
+
+            posts_res = supabase.rpc(
+                "match_posts",
+                {"query_embedding": avg_list, "match_count": 50}
+            ).execute()
+
+            results = posts_res.data or []
+
+            if search:
+                s = search.lower()
+                results = [
+                    p for p in results
+                    if s in (p.get("title") or "").lower()
+                    or s in (p.get("description") or "").lower()
+                ]
+
+            return {
+                "feed": type,
+                "user_uuid": user_uuid,
+                "posts": results[:10]
+            }
+
+        else:
+            return {"error": "invalid feed type"}
+
+        return {"feed": type, "posts": [dict(r) for r in rows]}
+
+    finally:
+        await conn.close()
 # ==================== POSTS API ====================
 
 @app.get("/api/posts")

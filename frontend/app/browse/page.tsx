@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 
@@ -12,6 +13,8 @@ import { PresetViewer, parseVitalPreset, type ParsedPreset, type RawVitalPreset 
 // Added import statement for PostForm for authenticated users to create posts
 import PostForm, { type PostFormValues } from "@/app/components/CreatePost/PostForm";
 import CreatePostDialog from "@/app/components/CreatePost/CreatePostDialog";
+import Navbar from "@/app/components/Navbar";
+import Footer from "@/app/components/Footer";
 
 interface Post {
   id: string;
@@ -34,6 +37,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 // Supabase storage bucket for uploaded files
 const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/public/";
 
+
 export default function BrowsePage() {
   // State management for user authentication and UI state
   const [user, setUser] = useState<User | null>(null);
@@ -50,13 +54,13 @@ export default function BrowsePage() {
 
   // Parsed preset data for compact preview in post
   const [parsedPresets, setParsedPresets] = useState<Record<string, ParsedPreset>>({});
-  
+
   // Currently expanded post ID for full preset viewer
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
-  
+
   // Full preset data for expanded posts
   const [presetData, setPresetData] = useState<Record<string, ParsedPreset | null>>({});
-  
+
   // Post ID that's currently loading preset data
   const [presetLoading, setPresetLoading] = useState<string | null>(null);
 
@@ -65,6 +69,9 @@ export default function BrowsePage() {
 
   // Controls the visibility of the post creation form for authenticated users
   const [showPostForm, setShowPostForm] = useState(false);
+
+  // Controls the feed type
+  const [feedType, setFeedType] = useState("new");
 
   // Store current values being entered in the post form
   const [postFormValues, setPostFormValues] = useState<PostFormValues>({
@@ -93,31 +100,50 @@ export default function BrowsePage() {
     return createClient(supabaseUrl, supabaseAnonKey);
   }, [supabaseUrl, supabaseAnonKey]);
 
-  // Fetch posts from backend API whenever the search query changes 
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get("create") === "1") {
+      handleCreatePostClick();
+    }
+  }, [searchParams, user]);
+
   useEffect(() => {
     const fetchPosts = async () => {
       setPostsLoading(true);
 
       try {
-        // Build the API URL with optional search query parameter for filtering posts by title/description
-        const url = searchQuery 
-          ? `${API_URL}/posts?search=${encodeURIComponent(searchQuery)}`
-          : `${API_URL}/posts`;
-      
+        let url = "";
+
+        if (feedType === "recommended") {
+          if (!user?.id) {
+            setPosts([]);
+            return;
+          }
+          url = `${API_URL}/feed?type=recommended&user_uuid=${user.id}`;
+        } else {
+          url = `${API_URL}/feed?type=${feedType}`;
+        }
+
+        if (searchQuery.trim()) {
+          url += `&search=${encodeURIComponent(searchQuery)}`;
+        }
+
         const response = await fetch(url);
         if (!response.ok) throw new Error("Failed to fetch posts");
-      
+
         const data = await response.json();
-        setPosts(data.posts);
+        setPosts(data.posts || []);
       } catch (error) {
         console.error("Error fetching posts:", error);
+        setPosts([]);
       } finally {
         setPostsLoading(false);
       }
     };
 
     fetchPosts();
-  }, [searchQuery]); // Re-run when search query changes
+  }, [feedType, searchQuery, user?.id]);
 
   // Fetch preset data when expanding a post
   const handleExpandPost = useCallback(async (post: Post) => {
@@ -147,19 +173,20 @@ export default function BrowsePage() {
       // Parse and store the preset data for this post
       const rawPreset: RawVitalPreset = await response.json();
       const parsedPreset = parseVitalPreset(rawPreset);
-      setPresetData((prev) => ({ 
-        ...prev, 
-        [post.id]: parsedPreset }));
-      } catch (error) {
-        console.error("Error fetching preset data:", error);
-        setPresetData((prev) => ({
-          ...prev,
-          [post.id]: null, // Set to null to indicate that preset data could not be loaded
-        }));
-      } finally {
-        setPresetLoading(null);
-      }
-    }, [expandedPostId, presetData, API_URL]);
+      setPresetData((prev) => ({
+        ...prev,
+        [post.id]: parsedPreset
+      }));
+    } catch (error) {
+      console.error("Error fetching preset data:", error);
+      setPresetData((prev) => ({
+        ...prev,
+        [post.id]: null, // Set to null to indicate that preset data could not be loaded
+      }));
+    } finally {
+      setPresetLoading(null);
+    }
+  }, [expandedPostId, presetData, API_URL]);
 
   // Handle upvote/downvote via backend API
   const handleVote = async (postId: string, direction: "up" | "down") => {
@@ -173,7 +200,7 @@ export default function BrowsePage() {
       const response = await fetch(`${API_URL}/posts/${postId}/${direction}vote`, {
         method: "POST",
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         // Update vote count in local state based on response from backend
@@ -282,7 +309,7 @@ export default function BrowsePage() {
       alert("Post created successfully!");
     } catch (error) {
       console.error("Error creating post:", error);
-      setPostError(error instanceof Error ? error.message: "Failed to create post");
+      setPostError(error instanceof Error ? error.message : "Failed to create post");
     } finally {
       setIsSubmitting(false);
     }
@@ -307,116 +334,37 @@ export default function BrowsePage() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+
+    if (diffMs < 0) return "just now";
+
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    if (diffMinutes < 1) return "just now";
+    if (diffMinutes < 60) return `${diffMinutes} min${diffMinutes === 1 ? "" : "s"} ago`;
+    if (diffHours < 24) return `${diffHours} hr${diffHours === 1 ? "" : "s"} ago`;
+    if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+    if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
+    return `${diffYears} yr${diffYears === 1 ? "" : "s"} ago`;
   };
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 font-sans dark:bg-black">
       {/* Navbar */}
-      <nav className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-black">
-        {/* Logo/Brand */}
-        <Link href="/" className="text-xl font-semibold text-black dark:text-white hover:opacity-80 transition">
-          Resonance
-        </Link>
-        
-        {/* Search Box */}
-        <div className="flex-1 mx-8 max-w-2xl">
-          <input
-            type="text"
-            placeholder="Search posts..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
-          />
-        </div>
-        
-        {/* Right side navigation - Browse, Generate, Profile/login, and Create Post button */}
-        <div className="relative flex items-center gap-6">
-          {/* Browse Link */}
-          <Link href="/browse" className="text-sm font-medium text-black transition-colors hover:text-zinc-600 hover:underline dark:text-white dark:hover:text-zinc-300">
-            Browse
-          </Link>
+      <Navbar
+        user={user}
+        onLoginClick={() => setShowAuthPanel(true)}
+        onProfileClick={() => setShowAuthPanel((open) => !open)}
+        onCreatePost={handleCreatePostClick}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
 
-          {/* Generate Link */}
-          <Link href="/generate" className="text-sm font-medium text-black transition-colors hover:text-zinc-600 hover:underline dark:text-white dark:hover:text-zinc-300">
-            Generate
-          </Link>
-
-          {/* Profile/Login Button */}
-          {user ? (
-            // Logged in state - show profile icon button
-            <button
-              aria-label="Profile"
-              onClick={() => setShowAuthPanel((open) => !open)}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 transition-colors hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 cursor-pointer"
-            >
-              <svg
-                className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-              </svg>
-            </button>
-          ) : (
-            // Not logged-in state: "log in" text button that opens the authentication panel when clicked
-            <button
-              onClick={() => setShowAuthPanel((open) => !open)}
-              className="text-sm font-medium text-black transition-colors hover:text-zinc-600 dark:text-white dark:hover:text-zinc-300 cursor-pointer"
-            >
-              Log In
-            </button>
-          )}
-
-          {/* Create Post Button - shown as a green + icon button */}
-          <button
-            onClick={handleCreatePostClick}
-            title="Create a post"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500 transition-colors hover:bg-green-600 dark:bg-green-700 dark:hover:bg-green-600 cursor-pointer"
-          >
-            <svg
-              className="h-5 w-5 text-white"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-          </button>
-
-          {/* Revised Code: Authentication Panel */}
-          {showAuthPanel && (
-            <div className="fixed right-6 top-16 z-50 w-80">
-              <LoginPanel
-                // Called when user clicks "Close" button and closes the authentication panel on parent component
-                onClose={() => setShowAuthPanel(false)}
-                // Called when user successfully logs in through Discord and updates parent component state with new user, and then closes the auth panel
-                onLoginSuccess={(newUser: User) => {
-                  // This will update the parent component state when the user logs in successfully
-                  setUser(newUser);
-                  // After logging in, the authentication panel will automatically close
-                  setShowAuthPanel(false);
-                }}
-              />
-            </div>
-          )}
-        </div>
-      </nav>
 
       {/* Create Post Dialog - Show when non-authenticated users try to create a post */}
       <CreatePostDialog
@@ -455,15 +403,42 @@ export default function BrowsePage() {
           </div>
         </div>
       )}
-      
+
       {/* Main Content - Posts Feed */}
       <main className="flex flex-1 w-full justify-center bg-white dark:bg-black px-8 py-8">
         <div className="w-full max-w-2xl">
+
           {/* Page Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-semibold text-black dark:text-white">Browse</h1>
             <p className="mt-2 text-zinc-600 dark:text-zinc-400">Discover synth presets shared by the community</p>
           </div>
+
+          <div className="mb-6 flex gap-2">
+            {[
+              { key: "new", label: "New" },
+              { key: "trending", label: "Trending" },
+              { key: "recommended", label: "For You" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => {
+                  if (tab.key === "recommended" && !user) {
+                    setShowAuthPanel(true);
+                    return;
+                  }
+                  setFeedType(tab.key);
+                }}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${feedType === tab.key
+                  ? "bg-black text-white dark:bg-white dark:text-black"
+                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
 
           {/* Posts List */}
           {postsLoading ? (
@@ -596,8 +571,8 @@ export default function BrowsePage() {
                         </div>
                       ) : presetData[post.id] ? (
                         // Preset data loaded successfully and will display the full preset view with all details and parameters
-                        <PresetViewer 
-                          preset={presetData[post.id]!} 
+                        <PresetViewer
+                          preset={presetData[post.id]!}
                           presetName={post.title.split(' - ')[0]}
                           uploadDate={new Date(post.created_at)}
                         />
@@ -614,6 +589,9 @@ export default function BrowsePage() {
           )}
         </div>
       </main>
+      <footer >
+        <Footer />
+      </footer>
     </div>
   );
 }
