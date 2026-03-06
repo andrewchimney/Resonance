@@ -365,6 +365,18 @@ export default function BrowsePage() {
         onSearchChange={setSearchQuery}
       />
 
+      {showAuthPanel && (
+        <div className="fixed right-6 top-16 z-50 w-80">
+          <LoginPanel
+            onClose={() => setShowAuthPanel(false)}
+            onLoginSuccess={(newUser: User) => {
+              setUser(newUser);
+              setShowAuthPanel(false);
+            }}
+          />
+        </div>
+      )}
+
 
       {/* Create Post Dialog - Show when non-authenticated users try to create a post */}
       <CreatePostDialog

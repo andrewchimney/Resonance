@@ -53,11 +53,7 @@ const placeholderExamples = [
 
 export default function GeneratePage() {
   const router = useRouter();
-  const [placeholder] = useState(() =>
-    typeof window !== "undefined"
-      ? placeholderExamples[Math.floor(Math.random() * placeholderExamples.length)]
-      : ""
-  );
+  const [placeholder, setPlaceholder] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [showAuthPanel, setShowAuthPanel] = useState(false);
@@ -94,6 +90,12 @@ export default function GeneratePage() {
     if (!supabaseUrl || !supabaseAnonKey) return null;
     return createClient(supabaseUrl, supabaseAnonKey);
   }, [supabaseAnonKey, supabaseUrl]);
+
+  useEffect(() => {
+    setPlaceholder(
+      placeholderExamples[Math.floor(Math.random() * placeholderExamples.length)]
+    );
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
