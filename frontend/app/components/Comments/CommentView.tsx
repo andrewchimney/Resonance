@@ -18,23 +18,28 @@ interface CommentViewProps {
 */
 export function CommentView({ comments, loading, error, onVote, isLoggedIn }: CommentViewProps) {
 
-    // Loading state
+    // Loading state: Show skeleton placeholder while comments are being fetched
     if (loading) {
         return (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Loading comments...
-            </p>
+            <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                    <div
+                        key={i}
+                        className="h-24 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800"
+                    />
+                ))}
+            </div>
         );
     }
 
-    // Error state
+    // Error state: Display error message if fetch failed
     if (error) {
         return (
             <p className="text-sm text-red-500">{error}</p>
         );
     }
 
-    // Empty state
+    // Empty state: Encourage users to post the first comment
     if (comments.length === 0) {
         return (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -43,9 +48,9 @@ export function CommentView({ comments, loading, error, onVote, isLoggedIn }: Co
         );
     }
 
-    // Render the list of Comment cards
+    // Render list: Map each CommentData to a comment card component
     return (
-        <div>
+        <div className="space-y-3"> {/* Add spacing between cards */}
             {comments.map((comment) => (
                 <Comment
                     key={comment.id}

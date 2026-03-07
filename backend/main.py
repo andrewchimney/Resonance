@@ -2,11 +2,10 @@
 
 from contextlib import asynccontextmanager
 import os
-from typing import Optional
+from typing import Optional, Literal
 import asyncpg
 import json
 import httpx
-from typing import Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv 
@@ -347,30 +346,52 @@ async def downvote_post(post_id: str):
 
 
 # ==================== COMMENTS API ====================
-
+# This section will fetch and create comments for posts, as well as upvote/downvote comments
 @app.get("/api/posts/{post_id}/comments")
-async def get_post_comments(post_id: str):
-    """Get all comments for a post"""
+async def get_post_comments(
+    post_id: str,
+    sort: Literal["recent", "relevant", "interacted"] = Query("recent"), # The allowed sort options are recent, relevant, interacted
+):
+    """
+    Get all comments for a post with optional sorting
+    
+    Sorting options:
+    - recent: newest comments first
+    - relevant: vote score weighted by recency (votes / hours since creation)
+    - interacted: highest vote score first (ignore recency)
+    """ 
+    # Decide order by cause based on sort option
+    order_by_map = {
+        "recent": "c.created_at DESC",
+        "relevant": """
+            (COALESCE(c.votes, 0)::float / GREATEST(EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 3600, 1))
+            DESC, c.created_at DESC
+        """,
+        "interacted": "ABS(COALESCE(c.votes, 0)) DESC, c.created_at DESC",
+    }
+    order_by = order_by_map[sort]
+    
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    rows = await conn.fetch("""
-        SELECT 
-            c.id,
-            c.post_id,
-            c.owner_user_id,
-            c.body,
-            c.visibility,
-            c.created_at,
-            c.votes,
-            c.preset_id,
-            u.username as author_username
-        FROM comments c
-        LEFT JOIN users u ON c.owner_user_id = u.id
-        WHERE c.post_id = $1
-        ORDER BY c.created_at ASC
-    """, post_id)
-    
-    await conn.close()
+    try:
+        # This will join the user table so the frontend can render the author username
+        rows = await conn.fetch(f"""
+            SELECT 
+                c.id,
+                c.post_id,
+                c.owner_user_id,
+                c.body,
+                c.visibility,
+                c.created_at,
+                c.votes,
+                c.preset_id,
+                u.username as author_username
+            FROM comments c
+            LEFT JOIN users u ON c.owner_user_id = u.id
+            WHERE c.post_id = $1
+            ORDER BY {order_by}
+        """, post_id)
+    finally:
+        await conn.close()
     
     return {
         "comments": [
@@ -393,23 +414,31 @@ async def get_post_comments(post_id: str):
 
 
 class CommentCreate(BaseModel):
-    body: str
-    preset_id: Optional[str] = None
-    visibility: Optional[str] = "public"
+    body: str # Comment text entered by the user
+    preset_id: Optional[str] = None # An optional preset attachment if the comment is also sharing a preset
+    visibility: Optional[str] = "public" # Visibility of the comment (public or private)
 
 
 @app.post("/api/posts/{post_id}/comments")
 async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional[str] = Query(None)):
-    """Create a comment on a post"""
+    """Create a comment on a post. This will require an authenticated user_id"""
+    # This will trim the whitespace from the comment body and ensure it's not empty before inserting into the database
+    body = (comment.body or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Comment body cannot be empty")
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
-        INSERT INTO comments (post_id, owner_user_id, body, preset_id, visibility, votes)
-        VALUES ($1, $2, $3, $4, $5, 0)
-        RETURNING id, created_at
-    """, post_id, user_id, comment.body, comment.preset_id, comment.visibility)
-    
-    await conn.close()
+    try:
+        row = await conn.fetchrow("""
+            INSERT INTO comments (post_id, owner_user_id, body, preset_id, visibility, votes)
+            VALUES ($1, $2, $3, $4, $5, 0)
+            RETURNING id, created_at
+        """, post_id, user_id, body, comment.preset_id, comment.visibility)
+    finally:
+        await conn.close()
     
     return {
         "id": str(row["id"]),
@@ -419,16 +448,17 @@ async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional
 
 @app.post("/api/comments/{comment_id}/upvote")
 async def upvote_comment(comment_id: str):
-    """Upvote a comment"""
+    """Upvote a comment. This will increment a comment vote score by +1."""
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
-        UPDATE comments SET votes = COALESCE(votes, 0) + 1
-        WHERE id = $1
-        RETURNING votes
-    """, comment_id)
-    
-    await conn.close()
+    try:
+        row = await conn.fetchrow("""
+            UPDATE comments 
+                                  SET votes = COALESCE(votes, 0) + 1
+            WHERE id = $1
+            RETURNING votes
+        """, comment_id)
+    finally:
+        await conn.close()
     
     if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -438,16 +468,17 @@ async def upvote_comment(comment_id: str):
 
 @app.post("/api/comments/{comment_id}/downvote")
 async def downvote_comment(comment_id: str):
-    """Downvote a comment"""
+    """Downvote a comment. This will decrement a comment vote score by -1."""
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
-        UPDATE comments SET votes = COALESCE(votes, 0) - 1
-        WHERE id = $1
-        RETURNING votes
-    """, comment_id)
-    
-    await conn.close()
+    try:
+        row = await conn.fetchrow("""
+            UPDATE comments 
+            SET votes = COALESCE(votes, 0) - 1
+            WHERE id = $1
+            RETURNING votes
+        """, comment_id)
+    finally:
+        await conn.close()
     
     if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
