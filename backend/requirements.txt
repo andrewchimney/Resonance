@@ -4,7 +4,6 @@ minio
 pgvector
 python-dotenv
 python-multipart
-vita
 psycopg2-binary
 asyncpg
 pydantic

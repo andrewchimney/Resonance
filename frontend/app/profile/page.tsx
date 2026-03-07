@@ -72,6 +72,10 @@ export default function ProfilePage() {
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
 
+  const [searchUsername, setSearchUsername] = useState("");
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -359,6 +363,27 @@ export default function ProfilePage() {
     setShowPostsPopup(false);
   };
 
+  async function handleUsernameSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = searchUsername.trim();
+    if (!trimmed) return;
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL;
+      const res = await fetch(`${API_URL}/users/by-username/${encodeURIComponent(trimmed)}`);
+      if (!res.ok) {
+        setSearchError("User not found");
+        return;
+      }
+      router.push(`/profile/${encodeURIComponent(trimmed)}`);
+    } catch {
+      setSearchError("Error searching for user");
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
   const formatDate = (dateString?: string) => {
     if (!dateString) return "Not available";
     try {
@@ -387,17 +412,37 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen flex flex-col font-sans">
       {/* NAVBAR */}
-      <nav className="sticky top-0 z-50 h-16 flex items-center justify-between border-b border-zinc-200 bg-white/90 px-6 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
+      <nav className="sticky top-0 z-50 h-16 flex items-center justify-between gap-4 border-b border-zinc-200 bg-white/90 px-6 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
         <div
-          className="cursor-pointer text-xl font-extrabold"
+          className="cursor-pointer text-xl font-extrabold shrink-0"
           onClick={() => router.push("/")}
         >
           Resonance
         </div>
 
+        <form onSubmit={handleUsernameSearch} className="flex flex-1 max-w-sm flex-col gap-0.5">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={searchUsername}
+              onChange={(e) => { setSearchUsername(e.target.value); setSearchError(null); }}
+              placeholder="Search user..."
+              className="flex-1 px-3 py-1.5 rounded-lg text-sm bg-zinc-100 text-black placeholder-zinc-400 border border-zinc-300 focus:outline-none focus:border-zinc-500 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500 dark:border-zinc-700"
+            />
+            <button
+              type="submit"
+              disabled={searchLoading}
+              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-zinc-900 text-white hover:bg-zinc-700 transition disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200 shrink-0"
+            >
+              {searchLoading ? "..." : "Search"}
+            </button>
+          </div>
+          {searchError && <p className="text-xs text-red-500">{searchError}</p>}
+        </form>
+
         <button
           onClick={() => router.push("/generate")}
-          className="text-sm font-semibold hover:underline"
+          className="text-sm font-semibold hover:underline shrink-0"
         >
           Generate
         </button>

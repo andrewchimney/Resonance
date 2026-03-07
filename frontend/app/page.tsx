@@ -1,8 +1,36 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo } from "react";
+import { createClient } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
+
+  const supabase = useMemo(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) return null;
+    return createClient(url, key);
+  }, []);
+
+  useEffect(() => {
+    if (!supabase) return;
+    // When Discord OAuth redirects back with #access_token, the Supabase client
+    // detects it and fires SIGNED_IN. Redirect to browse after login.
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (
+        event === "SIGNED_IN" &&
+        typeof window !== "undefined" &&
+        window.location.hash.includes("access_token")
+      ) {
+        router.replace("/browse");
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, [supabase, router]);
+
   return (
     <div 
       className="relative flex min-h-screen flex-col items-center justify-center bg-white dark:bg-black"

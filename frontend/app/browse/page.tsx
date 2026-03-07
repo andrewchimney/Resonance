@@ -310,7 +310,16 @@ export default function BrowsePage() {
                       </div>
                       <div>
                         <div className="font-medium text-black dark:text-white">
-                          {post.author?.username || "Anonymous"}
+                          {post.author?.username ? (
+                            <Link
+                              href={`/profile/${encodeURIComponent(post.author.username)}`}
+                              className="hover:underline"
+                            >
+                              {post.author.username}
+                            </Link>
+                          ) : (
+                            "Anonymous"
+                          )}
                         </div>
                         <div className="text-sm text-zinc-500 dark:text-zinc-400">
                           {formatDate(post.created_at)}
