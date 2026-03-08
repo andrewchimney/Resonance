@@ -174,6 +174,53 @@ const handleSignup = async (e: React.FormEvent) => {
   }
 };
 
+/**
+ * Discord Signup Handler
+ * This function will be called when the user clicks the "Sign up with Discord" button
+ * How this works: When the user clicks the button, they will be redirected to Discord's OAuth authorization page where they can log in and authorize the app to access their Discord account. 
+ * After they authorize, Discord will redirect them back to the app with an authorization code. We will then exchange that code for an access token and use it to get the user's Discord profile information. 
+ * Finally, we can create a new account for them in the supabase database using their Discord info.
+ */
+const handleDiscordSignup = async () => {
+  // Check if Supabase is properly configured before attempting to sign up
+  if (!supabase) {
+    setError("Supabase not configured (set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY).");
+    return;
+  }
+
+  // This will clear any previous authentication error messages
+  setError(null);
+  // Set loading state to show "Redirecting..." on button while the OAuth flow is in progress
+  setLoading(true);
+
+  /**
+   * OAuth Signup with Discord:
+   * - 1. User clicks the signup button
+   * - 2. User is redirected to Discord login page
+   * - 3. User enters their Discord credentials
+   * - 4. User authorizes the site to access their Discord account information
+   * - 5. User is redirected back to the current page (signup page) with an authorization code in the URL
+   * - 6. Supabase creates a session for the user
+   * - 7. User profile is created automatically in the database with their Discord information
+   * - 8. User will see a success message and stay on the signup page
+   */
+  const { error: oauthError } = await supabase.auth.signInWithOAuth({
+    // This will use Discord as the signup provider
+    provider: "discord",
+  options: {
+    // After Discord login, this will redirect the user back to the current page
+    redirectTo: typeof window !== "undefined" ? window.location.origin : undefined
+  }
+ });
+
+ // This will stop showing the loading state since the OAuth flow has been initiated
+ setLoading(false);
+ // If the signup attempt fails, store the error message to show to the user
+ if (oauthError) {
+  setError(oauthError.message || "Discord signup failed. Please try again.");
+ }
+};
+
 return (
   <div className="min-h-screen bg-zinc-50 dark:bg-black flex flex-col items-center justify-center px-4 py-8">
     <div className="w-full max-w-md">
@@ -205,6 +252,29 @@ return (
 
       {/* Signup Form - This will be hidden after a successful signup and show a success message instead */}
       {!success && (
+        <>
+          {/* Discord OAuth Button */}
+          <button
+            type="button"
+            onClick={handleDiscordSignup}
+            disabled={loading}
+            className="w-full px-4 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
+          >
+            {loading ? "Redirecting..." : "Sign up with Discord"}
+          </button>
+
+          {/* Divider */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-zinc-200 dark:border-zinc-800" />
+            </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-2 bg-zinc-50 dark:bg-black text-zinc-500 dark:text-zinc-400">
+              Or continue with email
+            </span>
+          </div>
+        </div>
+        
         <form onSubmit={handleSignup} className="space-y-4 mb-6">
           <div className="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800 p-6 space-y-5">
             {/* Email Input Field */}
@@ -311,6 +381,7 @@ return (
             </button>
           </div>
         </form>
+      </>
       )}
 
       {/* Login Link - Link to login page for users who already have an account */}
@@ -327,4 +398,3 @@ return (
   </div>
   );
 }
-
