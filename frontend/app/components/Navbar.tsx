@@ -86,7 +86,7 @@ export default function Navbar({
                 <button
                     onClick={onCreatePost}
                     title="Create a post"
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500 transition-colors hover:bg-green-600 dark:bg-green-700 dark:hover:bg-green-600 cursor-pointer"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 transition-colors hover:bg-zinc-800 dark:bg-zinc-600 dark:hover:bg-zinc-500 cursor-pointer"
                 >
                     <svg
                         className="h-5 w-5 text-white"
