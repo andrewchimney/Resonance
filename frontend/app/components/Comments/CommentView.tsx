@@ -8,6 +8,11 @@ interface CommentViewProps {
     error: string | null;      // Shows an error message if fetching failed
     onVote: (commentId: string, direction: "up" | "down") => void; // Passed down to each Comment
     isLoggedIn: boolean;       // Passed down to each Comment to gate vote buttons
+
+    // Optional handlers for pin/heart actions, only available to post owner
+    onTogglePin?: (commentId: string) => void;
+    onToggleHeart?: (commentId: string) => void;
+    isPostOwner?: boolean; // This is true if the current user is the owner of the post
 }
 
 /*
@@ -16,7 +21,7 @@ interface CommentViewProps {
   It also handles the loading, error, and empty states.
   It contains no data-fetching or form logic — that lives in Comments.tsx.
 */
-export function CommentView({ comments, loading, error, onVote, isLoggedIn }: CommentViewProps) {
+export function CommentView({ comments, loading, error, onVote, isLoggedIn, onTogglePin, onToggleHeart, isPostOwner = false, }: CommentViewProps) {
 
     // Loading state: Show skeleton placeholder while comments are being fetched
     if (loading) {
@@ -57,6 +62,9 @@ export function CommentView({ comments, loading, error, onVote, isLoggedIn }: Co
                     comment={comment}
                     onVote={onVote}
                     isLoggedIn={isLoggedIn}
+                    onTogglePin={onTogglePin}
+                    onToggleHeart={onToggleHeart}
+                    canManage={isPostOwner}
                 />
             ))}
         </div>

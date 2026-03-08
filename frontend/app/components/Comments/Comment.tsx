@@ -7,6 +7,12 @@ interface CommentProps {
     onVote: (commentId: string, direction: "up" | "down") => void;
     // Controls whether vote buttons are active (requires login)
     isLoggedIn: boolean;
+
+    // Optional handlers for pin/heart (only available to post owner)
+    onTogglePin?: (commentId: string) => void;
+    onToggleHeart?: (commentId: string) => void;
+    // This is only valid if the current user is the post owner
+    canManage?: boolean;
 }
 
 /*
@@ -15,8 +21,10 @@ interface CommentProps {
   - Author username + formatted post date
   - Comment body text
   - Upvote / vote count / downvote controls
+  - Pin button (only for post owner)
+  - Heart button (only for post owner)
 */
-export function Comment({ comment, onVote, isLoggedIn }: CommentProps) {
+export function Comment({ comment, onVote, isLoggedIn, onTogglePin, onToggleHeart, canManage=false }: CommentProps) {
 
     // Format the ISO timestamp to a readable date e.g. "Mar 2, 2026"
     const formatDate = (dateString: string) => {
@@ -63,8 +71,9 @@ export function Comment({ comment, onVote, isLoggedIn }: CommentProps) {
             {/* ── Comment Body ──────────────────────────────────────── */}
             <div className="flex flex-col flex-1 min-w-0">
 
-                {/* Username + Date */}
+                {/* Username + Date + Pin Button */}
                 <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
                     <span className="text-sm font-semibold text-black dark:text-white truncate">
                         {comment.author?.username ?? "Anonymous"}
                     </span>
@@ -73,24 +82,40 @@ export function Comment({ comment, onVote, isLoggedIn }: CommentProps) {
                     </span>
                 </div>
 
+                {/* Pin button */}
+                {canManage && (
+                    <button
+                        type="button"
+                        onClick={() => onTogglePin?.(comment.id)}
+                        className="flex-shrink-0 rounded-md px-2 py-1 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                        title={comment.is_pinned ? "Unpin comment" : "Pin comment"}
+                        aria-label={comment.is_pinned ? "Unpin comment" : "Pin comment"}
+                    >
+                        {comment.is_pinned ? "📌" : "📍"}
+                    </button>
+                )}
+            </div>
+
                 {/* Comment Text */}
                 <p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed">
                     {comment.body}
                 </p>
 
-                {/* ── Vote Controls ─────────────────────────────────── */}
-                <div className="flex items-center gap-2 mt-2">
-
-                    {/* Upvote */}
-                    <button
-                        onClick={() => isLoggedIn && onVote(comment.id, "up")}
-                        title={isLoggedIn ? "Upvote" : "Log in to vote"}
-                        className={voteButtonClass("hover:text-green-500 dark:hover:text-green-400")}
-                    >
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 19V6M5 12l7-7 7 7" />
-                        </svg>
-                    </button>
+                {/* ── Vote Controls + Heart Button ─────────────────────────────────── */}
+                <div className="flex items-center justify-between mt-2">
+                    
+                    {/* Vote Buttons */}
+                    <div className="flex items-center gap-2">
+                        {/* Upvote */}
+                        <button
+                            onClick={() => isLoggedIn && onVote(comment.id, "up")}
+                            title={isLoggedIn ? "Upvote" : "Log in to vote"}
+                            className={voteButtonClass("hover:text-green-500 dark:hover:text-green-400")}
+                        >
+                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 19V6M5 12l7-7 7 7" />
+                            </svg>
+                        </button>
 
                     {/* Net Vote Count */}
                     <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400 min-w-[1ch] text-center">
@@ -107,9 +132,22 @@ export function Comment({ comment, onVote, isLoggedIn }: CommentProps) {
                             <path d="M12 5v13M5 12l7 7 7-7" />
                         </svg>
                     </button>
-
                 </div>
+
+                {/* Heart button */}
+                {canManage && (
+                    <button
+                        type="button"
+                        onClick={() => onToggleHeart?.(comment.id)}
+                        className="rounded-md px-2 py-1 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                        title={comment.is_owner_hearted ? "Remove heart" : "Heart comment"}
+                        aria-label={comment.is_owner_hearted ? "Remove heart" : "Heart comment"}
+                    >
+                        {comment.is_owner_hearted ? "❤️" : "🤍"}
+                    </button>
+                )}
             </div>
         </div>
+    </div>
     );
 }

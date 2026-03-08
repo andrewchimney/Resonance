@@ -9,6 +9,7 @@ import { CommentView } from "./CommentView";
 interface CommentsProps {
     postId: string;      // The post whose comments we are displaying
     user: User | null;   // The currently logged-in Supabase user (null if not logged in)
+    postOwnerId?: string; // Owner of the post, used to determine if pin/heart controls should be shown
 }
 
 /*
@@ -18,12 +19,15 @@ interface CommentsProps {
   - CommentForm (new comment input)
   - A list of Comment cards
 */
-export function Comments({ postId, user }: CommentsProps) {
+export function Comments({ postId, user, postOwnerId }: CommentsProps) {
     // State for sort option
     const [ sortOption, setSortOption ] = useState<CommentSort>("recent");
 
-    const { comments, loading, error, submitting, submitComment, voteComment } = useComments(postId, sortOption);
+    const { comments, loading, error, submitting, submitComment, voteComment, togglePin, toggleHeart, } = useComments(postId, sortOption);
 
+    // Only post owner can see pin/heart controls, so we check if the logged-in user's ID matches the post owner's ID
+    const isPostOwner = !!user && !!postOwnerId && user.id === postOwnerId;
+    
     // Pass the logged-in user's ID down to submitComment for attribution
     const handleSubmit = (body: string) => {
         if (!user) return;
@@ -42,8 +46,10 @@ export function Comments({ postId, user }: CommentsProps) {
                 <select
                     value={sortOption}
                     onChange={(e) => setSortOption(e.target.value as CommentSort)}
-                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-black focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                    disabled={loading} // Disable while loading comments
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-black focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label="Sort comments by"
+                    title="Sort comments"
                 >
                     <option value="recent">Most Recent</option>
                     <option value="relevant">Most Relevant</option>
@@ -70,6 +76,9 @@ export function Comments({ postId, user }: CommentsProps) {
                 error={error}
                 onVote={voteComment}
                 isLoggedIn={!!user}
+                onTogglePin={togglePin}
+                onToggleHeart={toggleHeart}
+                isPostOwner={isPostOwner}
             />
         </section>
     );

@@ -16,6 +16,8 @@ function api(path: string) {
   - Fetching the comment list
   - Submitting a new comment
   - Voting (up or down) on a comment
+  - Pinning/unpinning comments (post owner only)
+  - Hearting/unhearting comments (post owner only)
 */
 export function useComments(postId: string, sortOption: CommentSort = "recent") {
     const [state, setState] = useState<CommentsState>({
@@ -57,7 +59,7 @@ export function useComments(postId: string, sortOption: CommentSort = "recent") 
     */
     const submitComment = async (body: string, userId: string, presetId?: string, visibility: "public" | "private" = "public") => {
         const trimmed = body.trim();
-        if (!trimmed) return; // This will prevent empty comments from being submited
+        if (!trimmed) return; // This will prevent empty comments from being submitted
         setState(prev => ({ ...prev, submitting: true, error: null }));
         try {
             const response = await fetch(api(`/api/posts/${postId}/comments?user_id=${encodeURIComponent(userId)}`), {
@@ -111,5 +113,53 @@ export function useComments(postId: string, sortOption: CommentSort = "recent") 
         }
     };
 
-    return { ...state, fetchComments, submitComment, voteComment };
+    /** 
+     * togglePin - POST request to pin/unpin a comment
+     * Only callable by the post owner
+     * On success, update the is_pinned flag in local state without re-fetching the whole list
+    */
+   const togglePin = async (commentId: string) => {
+    try {
+        const response = await fetch(api(`/api/comments/${commentId}/pin`), {
+            method: "POST",
+        });
+        if (!response.ok) throw new Error(`Failed to pin comment (${response.status})`);
+        const data = await response.json();
+
+        setState(prev => ({
+            ...prev,
+            comments: prev.comments.map((c) =>
+                c.id === commentId ? {...c, is_pinned: data?.is_pinned ?? !c.is_pinned } : c
+            ),
+        }));
+    } catch (err) {
+        console.error("Pin error:", err);
+    }
+    };
+
+    /**
+     * toggleHeart - POST request to heart/unheart a comment
+     * Only callable by the post owner.
+     * On success, update the is_owner_hearted flag in local state without re-fetching the whole list
+     */
+    const toggleHeart = async (commentId: string) => {
+        try {
+            const response = await fetch(api(`/api/comments/${commentId}/heart`), {
+                method: "POST",
+            });
+            if (!response.ok) throw new Error(`Failed to heart comment (${response.status})`);
+            const data = await response.json();
+
+            setState(prev => ({
+                ...prev,
+                comments: prev.comments.map((c) =>
+                    c.id === commentId ? { ...c, is_owner_hearted: data?.is_owner_hearted ?? !c.is_owner_hearted } : c
+                ),
+            }));
+        } catch (err) {
+            console.error("Heart error:", err);
+        }
+    };
+
+    return { ...state, fetchComments, submitComment, voteComment, togglePin, toggleHeart };
 }

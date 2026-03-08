@@ -17,6 +17,10 @@ export interface CommentData {
     votes: number;                 // Net vote count (upvotes - downvotes)
     preset_id: string | null;      // Optional linked preset UUID
     author?: CommentAuthor | null; // Joined author info from the users table
+
+    // New: Pin and heart features for post owners
+    is_pinned?: boolean;          // Whether the comment is pinned by the post owner
+    is_owner_hearted?: boolean;   // Whether the comment is hearted by the post owner
 }
 
 // Tracks the full state managed by useComments
