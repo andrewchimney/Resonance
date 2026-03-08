@@ -58,21 +58,32 @@ export default function Navbar({
                     <button
                         aria-label="Profile"
                         onClick={onProfileClick}
+                        title="View Profile"
                         className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 transition-colors hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 cursor-pointer"
                     >
-                        <svg
-                            className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                        {user.user_metadata?.avatar_url ? (
+                            // First Option: Show Discord/OAuth avatar if available
+                            <img
+                                src={user.user_metadata.avatar_url}
+                                alt={user.email || "User"}
+                                className="h-full w-full object-cover rounded-full"
                             />
-                        </svg>
+                        ):(
+                            // Fallback: Show default profile SVG icon
+                            <svg
+                                className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                />
+                            </svg>
+                        )}
                     </button>
                 ) : (
                     <button
