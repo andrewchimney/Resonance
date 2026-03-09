@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
+import PresetDetails from "@/app/components/PresetViewer/PresetDetails";
+import { parseVitalPreset } from "@/app/components/PresetViewer/parsePreset";
+import type { ParsedPreset, RawVitalPreset } from "@/app/components/PresetViewer/types";
 import Navbar from "@/app/components/Navbar";
 import Footer from "@/app/components/Footer";
 import LoginPanel from "@/app/components/Authentication/LoginPanel";
@@ -51,6 +54,80 @@ const placeholderExamples = [
   "Create a soft piano-like texture",
 ];
 
+// ---------------------------------------------------------------------------
+// "View preset details" collapsible — works for both retrieved and modified presets
+// ---------------------------------------------------------------------------
+function PresetDetailsToggle({
+  presetId,
+  presetData,
+  presetTitle,
+  apiBase,
+}: {
+  presetId?: string;
+  presetData?: Record<string, unknown>;
+  presetTitle?: string;
+  apiBase: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [parsed, setParsed] = useState<ParsedPreset | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleToggle = async () => {
+    if (!open && !parsed && !loading) {
+      if (presetData) {
+        // Modified preset — data is already in memory, just parse it
+        try {
+          setParsed(parseVitalPreset(presetData as unknown as RawVitalPreset));
+        } catch {
+          setErr("Could not parse preset data.");
+        }
+      } else if (presetId) {
+        // Retrieved preset — fetch the full .vital JSON from the backend
+        setLoading(true);
+        setErr(null);
+        try {
+          const res = await fetch(`${apiBase}/api/presets/${presetId}/data`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          setParsed(parseVitalPreset(json as RawVitalPreset));
+        } catch {
+          setErr("Could not load preset details.");
+        } finally {
+          setLoading(false);
+        }
+      }
+    }
+    setOpen((o) => !o);
+  };
+
+  return (
+    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={handleToggle}
+        className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${open ? "rotate-90" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        View preset details
+      </button>
+      {open && (
+        <div className="mt-3">
+          {loading && <p className="text-xs text-zinc-500 italic">Loading…</p>}
+          {err && <p className="text-xs text-red-400">{err}</p>}
+          {parsed && <PresetDetails preset={parsed} presetName={presetTitle} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GeneratePage() {
   const router = useRouter();
   const [placeholder, setPlaceholder] = useState("");
@@ -93,7 +170,7 @@ export default function GeneratePage() {
 
   useEffect(() => {
     setPlaceholder(
-      placeholderExamples[Math.floor(Math.random() * placeholderExamples.length)]
+        placeholderExamples[Math.floor(Math.random() * placeholderExamples.length)]
     );
   }, []);
 
@@ -160,8 +237,8 @@ export default function GeneratePage() {
     if (selectedPreset || currentPresetData) {
       const isFirstModification = selectedPreset !== null;
       const presetName = isFirstModification
-        ? selectedPreset!.preset.title
-        : currentPresetName ?? "preset";
+          ? selectedPreset!.preset.title
+          : currentPresetName ?? "preset";
       const messageIndex = selectedPreset?.messageIndex;
 
       const userMessage: Message = { role: "user", content: query };
@@ -170,11 +247,11 @@ export default function GeneratePage() {
       // Collapse the original preset card grid on first modification
       if (isFirstModification && messageIndex !== undefined) {
         setMessages((prev) =>
-          prev.map((msg, i) =>
-            i === messageIndex
-              ? { ...msg, presetsConsumed: true, selectedPresetId: selectedPreset!.preset.id }
-              : msg
-          )
+            prev.map((msg, i) =>
+                i === messageIndex
+                    ? { ...msg, presetsConsumed: true, selectedPresetId: selectedPreset!.preset.id }
+                    : msg
+            )
         );
       }
 
@@ -185,16 +262,16 @@ export default function GeneratePage() {
 
       try {
         const requestBody = isFirstModification
-          ? {
-            preset_id: selectedPreset!.preset.id,
-            description: query,
-            context: `The user is modifying an existing preset called "${presetName}".`,
-          }
-          : {
-            preset_data: currentPresetData,
-            description: query,
-            context: `The user is further modifying a preset called "${presetName}".`,
-          };
+            ? {
+              preset_id: selectedPreset!.preset.id,
+              description: query,
+              context: `The user is modifying an existing preset called "${presetName}".`,
+            }
+            : {
+              preset_data: currentPresetData,
+              description: query,
+              context: `The user is further modifying a preset called "${presetName}".`,
+            };
 
         const modifyRes = await fetch(`${API_BASE_URL}/api/modify-preset`, {
           method: "POST",
@@ -248,8 +325,8 @@ export default function GeneratePage() {
             {
               role: "assistant",
               content: isNetworkError
-                ? `Couldn't reach the backend. Is the server running on ${API_BASE_URL}?`
-                : `The modification failed: ${detail}`,
+                  ? `Couldn't reach the backend. Is the server running on ${API_BASE_URL}?`
+                  : `The modification failed: ${detail}`,
               error: true,
             },
           ];
@@ -289,9 +366,9 @@ export default function GeneratePage() {
           {
             role: "assistant",
             content:
-              results.length > 0
-                ? "Here are the top presets matching your description. Click one to select it, then describe how you'd like to modify it:"
-                : `No presets found matching "${query}". Try a different description!`,
+                results.length > 0
+                    ? "Here are the top presets matching your description. Click one to select it, then describe how you'd like to modify it:"
+                    : `No presets found matching "${query}". Try a different description!`,
             presets: results.length > 0 ? results : undefined,
           },
         ];
@@ -318,334 +395,344 @@ export default function GeneratePage() {
   }, [messages]);
 
   return (
-    <div className="flex min-h-screen flex-col overflow-x-hidden bg-zinc-50 font-sans dark:bg-black">
-      {/* Navbar */}
-      <Navbar
-        user={user}
-        onLoginClick={() => setShowAuthPanel(true)}
-        onProfileClick={() => setShowAuthPanel((open) => !open)}
-        onCreatePost={() => router.push("/browse?create=1")}
-      // searchQuery={searchQuery}
-      // onSearchChange={setSearchQuery}
-      />
+      <div className="flex min-h-screen flex-col overflow-x-hidden bg-zinc-50 font-sans dark:bg-black">
+        {/* Navbar */}
+        <Navbar
+            user={user}
+            onLoginClick={() => setShowAuthPanel(true)}
+            onProfileClick={() => setShowAuthPanel((open) => !open)}
+            onCreatePost={() => router.push("/browse?create=1")}
+            // searchQuery={searchQuery}
+            // onSearchChange={setSearchQuery}
+        />
 
-      {showAuthPanel && (
-        <div className="fixed right-6 top-16 z-50 w-80">
-          <LoginPanel
-            onClose={() => setShowAuthPanel(false)}
-            onLoginSuccess={(newUser: User) => {
-              setUser(newUser);
-              setShowAuthPanel(false);
-            }}
-          />
-        </div>
-      )}
-
-
-      {/* Main Content */}
-      <main className="flex min-h-[calc(100vh-72px)] w-full items-stretch justify-center gap-4 overflow-hidden bg-white px-4 pt-6 sm:px-6 sm:pt-8 dark:bg-black lg:gap-8">
-        {/* Left Robot Image */}
-        <div className="hidden self-stretch justify-end lg:flex" style={{ width: '260px' }}>
-          <div className="pt-40">
-            <div className="flex justify-end pr-8 xl:pr-20">
-              <Image
-                className="dark:invert scale-y-[-5.7]"
-                src="/robot-black.svg"
-                alt="SynthGPT logo"
-                width={120}
-                height={120}
-                priority
+        {showAuthPanel && (
+            <div className="fixed right-6 top-16 z-50 w-80">
+              <LoginPanel
+                  onClose={() => setShowAuthPanel(false)}
+                  onLoginSuccess={(newUser: User) => {
+                    setUser(newUser);
+                    setShowAuthPanel(false);
+                  }}
               />
             </div>
-            <div className="flex justify-end pr-8 xl:pr-20">
-              <Image
-                className="dark:invert scale-y-[5.7]"
-                src="/robot-black.svg"
-                alt="SynthGPT logo"
-                width={120}
-                height={120}
-                priority
-              />
-            </div>
-          </div>
-        </div>
+        )}
 
-        {/* Center Content */}
-        <div className="flex min-w-0 w-full max-w-2xl flex-col justify-center">
-          {!showChat ? (
-            // Initial hero view
-            <div className="flex flex-col items-center gap-6 text-center sm:gap-8">
-              <h1 className="text-4xl font-semibold tracking-tight text-black sm:text-6xl md:text-7xl dark:text-zinc-50">
-                Resonance
-              </h1>
-              <div className="relative w-full">
-                <form onSubmit={handleSubmit} className="w-full">
-                  <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder={placeholder}
-                    disabled={!sessionLoading && !user}
-                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-6 py-3 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
-                  />
-                </form>
-                {!sessionLoading && !user && (
-                  <div className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-[2px]">
-                    {!supabase ? (
-                      <span className="text-sm text-red-600 dark:text-red-400">Supabase not configured</span>
-                    ) : (
-                      <button
-                        onClick={handleDiscordLogin}
-                        disabled={authLoading}
-                        className="flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-60 dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer"
-                      >
-                        {authLoading ? "Redirecting..." : "Sign in to generate"}
-                      </button>
-                    )}
-                  </div>
-                )}
+
+        {/* Main Content */}
+        <main className="flex min-h-[calc(100vh-72px)] w-full items-stretch justify-center gap-4 overflow-hidden bg-white px-4 pt-6 sm:px-6 sm:pt-8 dark:bg-black lg:gap-8">
+          {/* Left Robot Image */}
+          <div className="hidden self-stretch justify-end lg:flex" style={{ width: '260px' }}>
+            <div className="pt-40">
+              <div className="flex justify-end pr-8 xl:pr-20">
+                <Image
+                    className="dark:invert scale-y-[-5.7]"
+                    src="/robot-black.svg"
+                    alt="SynthGPT logo"
+                    width={120}
+                    height={120}
+                    priority
+                />
+              </div>
+              <div className="flex justify-end pr-8 xl:pr-20">
+                <Image
+                    className="dark:invert scale-y-[5.7]"
+                    src="/robot-black.svg"
+                    alt="SynthGPT logo"
+                    width={120}
+                    height={120}
+                    priority
+                />
               </div>
             </div>
-          ) : (
-            // Chat view
-            <div className="flex h-full min-h-0 flex-col" style={{ height: 'calc(100vh - 170px)' }}>
-              {/* Messages container */}
-              <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
-                {messages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
-                    {message.isLoading ? (
-                      <div className="max-w-[92%] rounded-lg border border-black bg-white px-4 py-2 text-black sm:max-w-[80%] dark:border-white dark:bg-black dark:text-white">
-                        <div className="flex gap-1 items-center">
-                          <div className="bouncing-dot" style={{ animationDelay: '0s' }}></div>
-                          <div className="bouncing-dot" style={{ animationDelay: '0.2s' }}></div>
-                          <div className="bouncing-dot" style={{ animationDelay: '0.4s' }}></div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className={`max-w-[92%] rounded-lg border px-4 py-2 sm:max-w-[80%] ${message.role === "user"
-                          ? "bg-black text-white border-white dark:bg-white dark:text-black dark:border-black"
-                          : "bg-white text-black border-black dark:bg-black dark:text-white dark:border-white"
-                          }`}
-                      >
-                        <div className={message.error ? "text-red-600 dark:text-red-400" : ""}>
-                          {message.content}
-                        </div>
-                        {message.presetChanges && (
-                          <div className="mt-3 space-y-2">
-                            {message.presetChanges.audioB64 ? (
-                              <audio
-                                controls
-                                className="w-full"
-                                style={{ height: '40px' }}
-                                src={`data:audio/wav;base64,${message.presetChanges.audioB64}`}
-                              >
-                                Your browser does not support the audio element.
-                              </audio>
-                            ) : (
-                              <div className="text-xs italic opacity-50">No preview available</div>
-                            )}
-                            {message.presetChanges.modifiedData && (
+          </div>
+
+          {/* Center Content */}
+          <div className="flex min-w-0 w-full max-w-2xl flex-col justify-center">
+            {!showChat ? (
+                // Initial hero view
+                <div className="flex flex-col items-center gap-6 text-center sm:gap-8">
+                  <h1 className="text-4xl font-semibold tracking-tight text-black sm:text-6xl md:text-7xl dark:text-zinc-50">
+                    Resonance
+                  </h1>
+                  <div className="relative w-full">
+                    <form onSubmit={handleSubmit} className="w-full">
+                      <input
+                          type="text"
+                          value={inputValue}
+                          onChange={(e) => setInputValue(e.target.value)}
+                          placeholder={placeholder}
+                          disabled={!sessionLoading && !user}
+                          className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-6 py-3 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
+                      />
+                    </form>
+                    {!sessionLoading && !user && (
+                        <div className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-[2px]">
+                          {!supabase ? (
+                              <span className="text-sm text-red-600 dark:text-red-400">Supabase not configured</span>
+                          ) : (
                               <button
-                                onClick={() => {
-                                  const blob = new Blob(
-                                    [JSON.stringify(message.presetChanges!.modifiedData, null, 2)],
-                                    { type: "application/json" }
-                                  );
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement("a");
-                                  a.href = url;
-                                  a.download = `${(message.presetChanges!.presetName || "preset").replace(/\s+/g, "_")
-                                    }_modified.vital`;
-                                  document.body.appendChild(a);
-                                  a.click();
-                                  document.body.removeChild(a);
-                                  URL.revokeObjectURL(url);
-                                }}
-                                className="flex w-full items-center justify-center gap-1.5 rounded border border-black px-3 py-1.5 text-xs font-medium transition hover:bg-black hover:text-white dark:border-white dark:hover:bg-white dark:hover:text-black"
+                                  onClick={handleDiscordLogin}
+                                  disabled={authLoading}
+                                  className="flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-60 dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer"
                               >
-                                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                </svg>
-                                Download{message.presetChanges.presetName ? ` "${message.presetChanges.presetName}"` : " Modified Preset"}
+                                {authLoading ? "Redirecting..." : "Sign in to generate"}
                               </button>
-                            )}
-                          </div>
-                        )}
-                        {message.presets && message.presets.length > 0 && (
-                          <>
-                            {message.presetsConsumed ? (
-                              // Compact chip shown after user submits a modification
-                              <div className="mt-2 flex items-center gap-2 rounded-md bg-zinc-100 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                                <svg className="w-3 h-3 shrink-0 text-cyan-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                                <span>
-                                  Selected:{" "}
-                                  <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                                    {message.presets.find((p) => p.id === message.selectedPresetId)?.title ?? "Unknown"}
-                                  </span>
-                                </span>
+                          )}
+                        </div>
+                    )}
+                  </div>
+                </div>
+            ) : (
+                // Chat view
+                <div className="flex h-full min-h-0 flex-col" style={{ height: 'calc(100vh - 170px)' }}>
+                  {/* Messages container */}
+                  <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+                    {messages.map((message, index) => (
+                        <div
+                            key={index}
+                            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                        >
+                          {message.isLoading ? (
+                              <div className="max-w-[92%] rounded-lg border border-black bg-white px-4 py-2 text-black sm:max-w-[80%] dark:border-white dark:bg-black dark:text-white">
+                                <div className="flex gap-1 items-center">
+                                  <div className="bouncing-dot" style={{ animationDelay: '0s' }}></div>
+                                  <div className="bouncing-dot" style={{ animationDelay: '0.2s' }}></div>
+                                  <div className="bouncing-dot" style={{ animationDelay: '0.4s' }}></div>
+                                </div>
                               </div>
-                            ) : (
-                              // Selectable preset card grid
-                              <div className="mt-2 space-y-2">
-                                {message.presets.map((preset, presetIndex) => {
-                                  const isSelected =
-                                    selectedPreset?.messageIndex === index &&
-                                    selectedPreset.preset.id === preset.id;
-                                  const anySelected = selectedPreset?.messageIndex === index;
-                                  return (
-                                    <div
-                                      key={presetIndex}
-                                      onClick={() => setSelectedPreset({ messageIndex: index, preset })}
-                                      className={`cursor-pointer rounded border-t border-black pt-2 mt-2 transition dark:border-white ${isSelected
-                                        ? "ring-2 ring-cyan-400"
-                                        : anySelected
-                                          ? "opacity-40"
-                                          : "hover:opacity-80"
-                                        }`}
-                                    >
-                                      <div className="flex items-center justify-between mb-1">
-                                        <div className="flex-1">
-                                          <div className="font-medium text-sm text-black dark:text-white flex items-center gap-1.5">
-                                            {isSelected && (
-                                              <svg className="w-3 h-3 shrink-0 text-cyan-400" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                              </svg>
-                                            )}
-                                            {preset.title}
-                                          </div>
-                                          <div className="text-xs opacity-60 mt-0.5">
-                                            {(preset.score * 100).toFixed(0)}% match
-                                          </div>
-                                        </div>
-                                        <a
-                                          href={`${PRESETS_BUCKET}/${preset.preset_object_key || preset.id}`}
-                                          download
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="px-2 py-1 border border-black dark:border-white hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition"
-                                          title="Download"
-                                        >
-                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                          </svg>
-                                        </a>
-                                      </div>
-                                      {preset.preview_object_key ? (
-                                        <div className="mt-1.5">
+                          ) : (
+                              <div
+                                  className={`max-w-[92%] rounded-lg border px-4 py-2 sm:max-w-[80%] ${message.role === "user"
+                                      ? "bg-black text-white border-white dark:bg-white dark:text-black dark:border-black"
+                                      : "bg-white text-black border-black dark:bg-black dark:text-white dark:border-white"
+                                  }`}
+                              >
+                                <div className={message.error ? "text-red-600 dark:text-red-400" : ""}>
+                                  {message.content}
+                                </div>
+                                {message.presetChanges && (
+                                    <div className="mt-3 space-y-2">
+                                      {message.presetChanges.audioB64 ? (
                                           <audio
-                                            controls
-                                            className="w-full"
-                                            style={{ height: '40px' }}
-                                            src={`${PREVIEWS_BUCKET}/${preset.preview_object_key}`}
-                                            onClick={(e) => e.stopPropagation()}
+                                              controls
+                                              className="w-full"
+                                              style={{ height: '40px' }}
+                                              src={`data:audio/wav;base64,${message.presetChanges.audioB64}`}
                                           >
                                             Your browser does not support the audio element.
                                           </audio>
-                                        </div>
                                       ) : (
-                                        <div className="text-xs opacity-50 italic mt-1">
-                                          No preview available
-                                        </div>
+                                          <div className="text-xs italic opacity-50">No preview available</div>
                                       )}
+                                      {message.presetChanges.modifiedData && (
+                                          <button
+                                              onClick={() => {
+                                                const blob = new Blob(
+                                                    [JSON.stringify(message.presetChanges!.modifiedData, null, 2)],
+                                                    { type: "application/json" }
+                                                );
+                                                const url = URL.createObjectURL(blob);
+                                                const a = document.createElement("a");
+                                                a.href = url;
+                                                a.download = `${(message.presetChanges!.presetName || "preset").replace(/\s+/g, "_")
+                                                }_modified.vital`;
+                                                document.body.appendChild(a);
+                                                a.click();
+                                                document.body.removeChild(a);
+                                                URL.revokeObjectURL(url);
+                                              }}
+                                              className="flex w-full items-center justify-center gap-1.5 rounded border border-black px-3 py-1.5 text-xs font-medium transition hover:bg-black hover:text-white dark:border-white dark:hover:bg-white dark:hover:text-black"
+                                          >
+                                            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                            </svg>
+                                            Download{message.presetChanges.presetName ? ` "${message.presetChanges.presetName}"` : " Modified Preset"}
+                                          </button>
+                                      )}
+                                      <PresetDetailsToggle
+                                          presetData={message.presetChanges.modifiedData}
+                                          presetTitle={message.presetChanges.presetName}
+                                          apiBase={API_BASE_URL}
+                                      />
                                     </div>
-                                  );
-                                })}
+                                )}
+                                {message.presets && message.presets.length > 0 && (
+                                    <>
+                                      {message.presetsConsumed ? (
+                                          // Compact chip shown after user submits a modification
+                                          <div className="mt-2 flex items-center gap-2 rounded-md bg-zinc-100 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                                            <svg className="w-3 h-3 shrink-0 text-cyan-500" fill="currentColor" viewBox="0 0 20 20">
+                                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                            <span>
+                                  Selected:{" "}
+                                              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                                    {message.presets.find((p) => p.id === message.selectedPresetId)?.title ?? "Unknown"}
+                                  </span>
+                                </span>
+                                          </div>
+                                      ) : (
+                                          // Selectable preset card grid
+                                          <div className="mt-2 space-y-2">
+                                            {message.presets.map((preset, presetIndex) => {
+                                              const isSelected =
+                                                  selectedPreset?.messageIndex === index &&
+                                                  selectedPreset.preset.id === preset.id;
+                                              const anySelected = selectedPreset?.messageIndex === index;
+                                              return (
+                                                  <div
+                                                      key={presetIndex}
+                                                      onClick={() => setSelectedPreset({ messageIndex: index, preset })}
+                                                      className={`cursor-pointer rounded border-t border-black pt-2 mt-2 transition dark:border-white ${isSelected
+                                                          ? "ring-2 ring-cyan-400"
+                                                          : anySelected
+                                                              ? "opacity-40"
+                                                              : "hover:opacity-80"
+                                                      }`}
+                                                  >
+                                                    <div className="flex items-center justify-between mb-1">
+                                                      <div className="flex-1">
+                                                        <div className="font-medium text-sm text-black dark:text-white flex items-center gap-1.5">
+                                                          {isSelected && (
+                                                              <svg className="w-3 h-3 shrink-0 text-cyan-400" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                              </svg>
+                                                          )}
+                                                          {preset.title}
+                                                        </div>
+                                                        <div className="text-xs opacity-60 mt-0.5">
+                                                          {(preset.score * 100).toFixed(0)}% match
+                                                        </div>
+                                                      </div>
+                                                      <a
+                                                          href={`${PRESETS_BUCKET}/${preset.preset_object_key || preset.id}`}
+                                                          download
+                                                          onClick={(e) => e.stopPropagation()}
+                                                          className="px-2 py-1 border border-black dark:border-white hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition"
+                                                          title="Download"
+                                                      >
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                        </svg>
+                                                      </a>
+                                                    </div>
+                                                    {preset.preview_object_key ? (
+                                                        <div className="mt-1.5">
+                                                          <audio
+                                                              controls
+                                                              className="w-full"
+                                                              style={{ height: '40px' }}
+                                                              src={`${PREVIEWS_BUCKET}/${preset.preview_object_key}`}
+                                                              onClick={(e) => e.stopPropagation()}
+                                                          >
+                                                            Your browser does not support the audio element.
+                                                          </audio>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-xs opacity-50 italic mt-1">
+                                                          No preview available
+                                                        </div>
+                                                    )}
+                                                    <PresetDetailsToggle
+                                                        presetId={preset.id}
+                                                        presetTitle={preset.title}
+                                                        apiBase={API_BASE_URL}
+                                                    />
+                                                  </div>
+                                              );
+                                            })}
+                                          </div>
+                                      )}
+                                    </>
+                                )}
                               </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
+                          )}
+                        </div>
+                    ))}
+                    <div ref={messagesEndRef} />
                   </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
 
-              {/* Input form */}
-              <div className="space-y-2">
-                {(selectedPreset || currentPresetData) && (
-                  <div className="flex items-center justify-between rounded-lg border border-cyan-400 bg-cyan-50 px-3 py-1.5 text-xs dark:bg-cyan-950 dark:border-cyan-600">
+                  {/* Input form */}
+                  <div className="space-y-2">
+                    {(selectedPreset || currentPresetData) && (
+                        <div className="flex items-center justify-between rounded-lg border border-cyan-400 bg-cyan-50 px-3 py-1.5 text-xs dark:bg-cyan-950 dark:border-cyan-600">
                     <span className="text-cyan-700 dark:text-cyan-300">
                       Modifying:{" "}
                       <span className="font-semibold">
                         {selectedPreset?.preset.title ?? currentPresetName}
                       </span>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedPreset(null);
-                        setCurrentPresetData(null);
-                        setCurrentPresetName(null);
-                      }}
-                      className="ml-2 text-cyan-500 hover:text-cyan-700 dark:hover:text-cyan-200 transition"
-                      aria-label="Cancel modification"
-                    >
-                      ✕
-                    </button>
+                          <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedPreset(null);
+                                setCurrentPresetData(null);
+                                setCurrentPresetName(null);
+                              }}
+                              className="ml-2 text-cyan-500 hover:text-cyan-700 dark:hover:text-cyan-200 transition"
+                              aria-label="Cancel modification"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                    )}
+                    <form onSubmit={handleSubmit} className="flex gap-2">
+                      <input
+                          type="text"
+                          value={inputValue}
+                          onChange={(e) => setInputValue(e.target.value)}
+                          placeholder={
+                            selectedPreset
+                                ? `Describe how to modify "${selectedPreset.preset.title}"...`
+                                : currentPresetData
+                                    ? `Describe further changes to "${currentPresetName}"...`
+                                    : "Type your message..."
+                          }
+                          className="flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-6 py-3 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
+                      />
+                      <button
+                          type="submit"
+                          disabled={!inputValue.trim()}
+                          className="rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6 sm:text-base dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                      >
+                        {selectedPreset || currentPresetData ? "Modify" : "Send"}
+                      </button>
+                    </form>
                   </div>
-                )}
-                <form onSubmit={handleSubmit} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder={
-                      selectedPreset
-                        ? `Describe how to modify "${selectedPreset.preset.title}"...`
-                        : currentPresetData
-                          ? `Describe further changes to "${currentPresetName}"...`
-                          : "Type your message..."
-                    }
-                    className="flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-6 py-3 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!inputValue.trim()}
-                    className="rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6 sm:text-base dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
-                  >
-                    {selectedPreset || currentPresetData ? "Modify" : "Send"}
-                  </button>
-                </form>
+                </div>
+            )}
+          </div>
+
+          {/* Right Robot Image (Mirrored) */}
+          <div className="hidden self-stretch justify-start lg:flex" style={{ width: '260px' }}>
+            <div className="pt-40">
+              <div className="flex justify-start pl-8 xl:pl-20">
+                <Image
+                    className="dark:invert scale-y-[-5.5] scale-x-[-1]"
+                    src="/robot-black.svg"
+                    alt="SynthGPT logo"
+                    width={120}
+                    height={120}
+                    priority
+                />
+              </div>
+              <div className="flex justify-start pl-8 xl:pl-20">
+                <Image
+                    className="dark:invert scale-y-[5.5] scale-x-[-1]"
+                    src="/robot-black.svg"
+                    alt="SynthGPT logo"
+                    width={120}
+                    height={120}
+                    priority
+                />
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Right Robot Image (Mirrored) */}
-        <div className="hidden self-stretch justify-start lg:flex" style={{ width: '260px' }}>
-          <div className="pt-40">
-            <div className="flex justify-start pl-8 xl:pl-20">
-              <Image
-                className="dark:invert scale-y-[-5.5] scale-x-[-1]"
-                src="/robot-black.svg"
-                alt="SynthGPT logo"
-                width={120}
-                height={120}
-                priority
-              />
-            </div>
-            <div className="flex justify-start pl-8 xl:pl-20">
-              <Image
-                className="dark:invert scale-y-[5.5] scale-x-[-1]"
-                src="/robot-black.svg"
-                alt="SynthGPT logo"
-                width={120}
-                height={120}
-                priority
-              />
-            </div>
           </div>
-        </div>
-      </main>
-      <footer >
-        <Footer />
-      </footer>
-    </div>
+        </main>
+        <footer >
+          <Footer />
+        </footer>
+      </div>
   );
 }
