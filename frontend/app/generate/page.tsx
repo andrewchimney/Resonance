@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
@@ -54,9 +53,9 @@ const placeholderExamples = [
 
 export default function GeneratePage() {
   const router = useRouter();
-  const [placeholder, setPlaceholder] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  const [placeholder, setPlaceholder] = useState("");
   const [showAuthPanel, setShowAuthPanel] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -113,7 +112,6 @@ export default function GeneratePage() {
     supabase.auth.getSession().then(({ data }) => {
       if (!isMounted) return;
       setUser(data.session?.user ?? null);
-      setSessionLoading(false);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -404,8 +402,8 @@ export default function GeneratePage() {
       <Navbar
         user={user}
         onLoginClick={() => setShowAuthPanel(true)}
-        onProfileClick={() => setShowAuthPanel((open) => !open)}
-        onCreatePost={handleCreatePostClick}
+        onProfileClick={() => setShowAuthPanel(true)}
+        onCreatePost={() => router.push("/browse?create=1")}
       // searchQuery={searchQuery}
       // onSearchChange={setSearchQuery}
       />
@@ -817,9 +815,6 @@ export default function GeneratePage() {
           </div>
         </div>
       </main>
-      <footer >
-        <Footer />
-      </footer>
     </div>
   );
 }

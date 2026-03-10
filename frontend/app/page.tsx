@@ -5,7 +5,6 @@ import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@supabase/supabase-js";
 import Navbar from "@/app/components/Navbar";
-import Footer from "@/app/components/Footer";
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
@@ -54,7 +53,7 @@ export default function Home() {
 
   return (
     <div
-      className="relative min-h-screen overflow-hidden bg-white font-sans dark:bg-black"
+      className="relative min-h-full overflow-hidden bg-white font-sans dark:bg-black"
       style={{
         backgroundImage: "url(/background.png)",
         backgroundSize: "cover",
@@ -70,7 +69,7 @@ export default function Home() {
         <Navbar
           user={user}
           onLoginClick={() => setShowAuthPanel(true)}
-          onProfileClick={() => setShowAuthPanel((open) => !open)}
+          onProfileClick={() => setShowAuthPanel(true)}
           onCreatePost={() => {
             window.location.href = "/browse?create=1";
           }}
@@ -142,9 +141,6 @@ export default function Home() {
           </Link>
         </div>
       </main>
-      <footer className="relative z-10">
-        <Footer />
-      </footer>
     </div>
   );
 }

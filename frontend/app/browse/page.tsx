@@ -23,7 +23,7 @@ interface Post {
 
 import { Comments } from "../components/Comments/Comments";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL 
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/public/";
 
 export default function BrowsePage() {
@@ -139,7 +139,7 @@ export default function BrowsePage() {
 
   const handleToggleComments = (postId: string) => {
     setExpandedPostId((prev) => (prev === postId ? null : postId));
-  }
+  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -264,7 +264,7 @@ export default function BrowsePage() {
           {user ? (
             <button
               aria-label="Profile"
-              onClick={() => setShowAuthPanel((open) => !open)}
+              onClick={() => setShowAuthPanel(true)}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 transition-colors hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 cursor-pointer"
             >
               {user.user_metadata?.avatar_url ? (
@@ -291,7 +291,7 @@ export default function BrowsePage() {
             </button>
           ) : (
             <button
-              onClick={() => setShowAuthPanel((open) => !open)}
+              onClick={() => setShowAuthPanel(true)}
               className="text-sm font-medium text-black transition-colors hover:text-zinc-600 dark:text-white dark:hover:text-zinc-300 cursor-pointer"
             >
               Log In
