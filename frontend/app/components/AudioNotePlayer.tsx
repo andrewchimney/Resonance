@@ -64,17 +64,20 @@ export default function AudioNotePlayer({
     { name: 'B', semitones: 11, isSharp: false },
   ]
 
+  const stopCurrent = () => {
+    if (currentSourceRef.current) {
+      currentSourceRef.current.stop()
+      currentSourceRef.current = null
+    }
+    if (currentContextRef.current) {
+      currentContextRef.current.close()
+      currentContextRef.current = null
+    }
+  }
+
   const playNote = async (semitones: number, noteName: string) => {
     try {
-      // Stop currently playing note
-      if (currentSourceRef.current) {
-        currentSourceRef.current.stop()
-        currentSourceRef.current = null
-      }
-      if (currentContextRef.current) {
-        await currentContextRef.current.close()
-        currentContextRef.current = null
-      }
+      stopCurrent()
 
       const audioContext = new AudioContext()
       const response = await fetch(audioPath)
@@ -104,7 +107,7 @@ export default function AudioNotePlayer({
     <>
       {/* Trigger Button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => { if (isOpen) stopCurrent(); setIsOpen(!isOpen) }}
         className={`text-sm underline text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 ${className}`}
       >
         {isOpen ? 'Close' : buttonText}
@@ -120,7 +123,7 @@ export default function AudioNotePlayer({
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-black dark:text-white">Note Player</h2>
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={() => { stopCurrent(); setIsOpen(false) }}
               className="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 text-2xl"
             >
               ×
@@ -151,7 +154,7 @@ export default function AudioNotePlayer({
       {isOpen && (
         <div
           className="fixed inset-0 transition-opacity duration-300 z-40"
-          onClick={() => setIsOpen(false)}
+          onClick={() => { stopCurrent(); setIsOpen(false) }}
         />
       )}
     </>
