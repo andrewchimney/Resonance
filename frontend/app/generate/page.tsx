@@ -63,7 +63,7 @@ export default function GeneratePage() {
   const [generationPreferences, setGenerationPreferences] = useState("");
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [showPostForm, setShowPostForm] = useState(false);
-  const [postFormValues, setPostFormValues] = useState<PostFormValues>({ title: "", description: "", preset_id: null, uploaded_file: null });
+  const [postFormValues, setPostFormValues] = useState<PostFormValues>({ title: "", description: "", preset_id: null, uploaded_file: null, postAnonymously: false });
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);
   const [submitPostError, setSubmitPostError] = useState<string | null>(null);
   
@@ -381,14 +381,17 @@ export default function GeneratePage() {
           preset_id = uploadData.preset_id ?? preset_id;
         }
       }
-      const res = await fetch(`${API_BASE_URL}/posts`, {
+      const postUrl = (user && !postFormValues.postAnonymously)
+        ? `${API_BASE_URL}/posts?user_id=${user.id}`
+        : `${API_BASE_URL}/posts`;
+      const res = await fetch(postUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: postFormValues.title, description: postFormValues.description || null, preset_id, owner_user_id: user?.id ?? null, visibility: "public" }),
+        body: JSON.stringify({ title: postFormValues.title, description: postFormValues.description || null, preset_id, visibility: "public" }),
       });
       if (!res.ok) throw new Error("Failed to create post");
       setShowPostForm(false);
-      setPostFormValues({ title: "", description: "", preset_id: null, uploaded_file: null });
+      setPostFormValues({ title: "", description: "", preset_id: null, uploaded_file: null, postAnonymously: false });
     } catch (err) {
       setSubmitPostError(err instanceof Error ? err.message : "Failed to create post");
     } finally {
