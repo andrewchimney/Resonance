@@ -137,6 +137,22 @@ export default function BrowsePage() {
     }
   };
 
+  const handleDeletePost = async (postId: string) => {
+    if (!user) return;
+    if (!window.confirm("Delete this post?")) return
+
+    try {
+      const response = await fetch(`${API_URL}/posts/${postId}?user_id=${user.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Failed to delete post");
+      
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+    } catch (error) {
+      console.error("Error deleting post:", error);
+    }
+  };
+
   const handleToggleComments = (postId: string) => {
     setExpandedPostId((prev) => (prev === postId ? null : postId));
   };
@@ -536,13 +552,24 @@ export default function BrowsePage() {
                       <span>{expandedPostId === post.id ? "Hide Comments" : "Comments"}</span>
                     </button>
 
+                    {/* Delete Button - only visible to post owner */}
+                    {user && user.id === post.owner_user_id && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePost(post.id)}
+                        className="ml-auto flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+
                     {/* Comment Section — only rendered for the expanded post */}
                     {expandedPostId === post.id && (
                         <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
                           <Comments postId={post.id} user={user} />
                         </div>
                     )}
-                  </div>
                 </article>
               ))}
             </div>
