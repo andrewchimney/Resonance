@@ -30,6 +30,7 @@ const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/p
 
 export default function BrowsePage() {
   const [user, setUser] = useState<User | null>(null);
+  const [authLoaded, setAuthLoaded] = useState(false);
   const [showAuthPanel, setShowAuthPanel] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [showPostForm, setShowPostForm] = useState(false);
@@ -55,12 +56,13 @@ export default function BrowsePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Open create post dialog if ?create=1 is in the URL
+  // Open create post dialog if ?create=1 is in the URL — wait for auth to resolve first
   useEffect(() => {
-    if (searchParams.get("create") === "1") {
-      setShowCreatePost(true);
+    if (authLoaded && searchParams.get("create") === "1") {
+      handleCreatePostClick();
+      router.replace("/browse");
     }
-  }, [searchParams]);
+  }, [authLoaded, searchParams]);
 
 
   // Supabase client for auth only
@@ -77,6 +79,7 @@ export default function BrowsePage() {
     supabase.auth.getSession().then(({ data }) => {
       if (!isMounted) return;
       setUser(data.session?.user ?? null);
+      setAuthLoaded(true);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
