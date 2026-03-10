@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import CreatePostDialog from "../components/CreatePost/CreatePostDialog";
+import PostForm, { type PostFormValues } from "../components/CreatePost/PostForm";
 interface Post {
   id: string;
   title: string;
@@ -27,6 +29,16 @@ const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/p
 export default function BrowsePage() {
   const [user, setUser] = useState<User | null>(null);
   const [showAuthPanel, setShowAuthPanel] = useState(false);
+  const [showCreatePost, setShowCreatePost] = useState(false);
+  const [showPostForm, setShowPostForm] = useState(false);
+  const [postFormValues, setPostFormValues] = useState<PostFormValues>({
+    title: "",
+    description: "",
+    preset_id: null,
+    uploaded_file: null,
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -38,6 +50,14 @@ export default function BrowsePage() {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Open create post dialog if ?create=1 is in the URL
+  useEffect(() => {
+    if (searchParams.get("create") === "1") {
+      setShowCreatePost(true);
+    }
+  }, [searchParams]);
 
 
   // Supabase client for auth only
@@ -156,6 +176,66 @@ export default function BrowsePage() {
     setShowAuthPanel(false);
   };
 
+  const handleCreatePostClick = () => {
+    if (user) {
+      setShowPostForm(true);
+    } else {
+      setShowCreatePost(true);
+    }
+  };
+
+  const handleSubmitPost = async () => {
+    if (!postFormValues.title.trim()) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      let preset_id = postFormValues.preset_id;
+
+      if (postFormValues.uploaded_file) {
+        const fd = new FormData();
+        fd.append("file", postFormValues.uploaded_file);
+        if (user) {
+          const { data: session } = await supabase!.auth.getSession();
+          if (session.session?.access_token) {
+            fd.append("access_token", session.session.access_token);
+          }
+        }
+        const uploadRes = await fetch(`${API_URL}/api/presets/upload`, { method: "POST", body: fd });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          preset_id = uploadData.preset_id ?? preset_id;
+        }
+      }
+
+      const res = await fetch(`${API_URL}/posts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: postFormValues.title,
+          description: postFormValues.description || null,
+          preset_id,
+          owner_user_id: user?.id ?? null,
+          visibility: "public",
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to create post");
+
+      setShowPostForm(false);
+      setPostFormValues({ title: "", description: "", preset_id: null, uploaded_file: null });
+      // Refresh posts
+      const postsRes = await fetch(`${API_URL}/posts`);
+      if (postsRes.ok) {
+        const data = await postsRes.json();
+        setPosts(data.posts);
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Failed to create post");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 font-sans dark:bg-black">
       {/* Navbar */}
@@ -187,19 +267,27 @@ export default function BrowsePage() {
               onClick={() => setShowAuthPanel((open) => !open)}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 transition-colors hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 cursor-pointer"
             >
-              <svg
-                className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              {user.user_metadata?.avatar_url ? (
+                <img
+                  src={user.user_metadata.avatar_url}
+                  alt={user.email || "User"}
+                  className="h-full w-full object-cover rounded-full"
                 />
-              </svg>
+              ) : (
+                <svg
+                  className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                  />
+                </svg>
+              )}
             </button>
           ) : (
             <button
@@ -209,6 +297,16 @@ export default function BrowsePage() {
               Log In
             </button>
           )}
+
+          <button
+            onClick={handleCreatePostClick}
+            title="Create a post"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 transition-colors hover:bg-zinc-800 dark:bg-zinc-600 dark:hover:bg-zinc-500 cursor-pointer"
+          >
+            <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
 
           {showAuthPanel && (
             <div className="fixed right-6 top-16 z-50 w-80 rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl shadow-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900">
@@ -265,6 +363,35 @@ export default function BrowsePage() {
           )}
         </div>
       </nav>
+
+      <CreatePostDialog
+        isOpen={showCreatePost}
+        onClose={() => setShowCreatePost(false)}
+        onPostAnonymously={() => { setShowCreatePost(false); setShowPostForm(true); }}
+      />
+
+      {showPostForm && (
+        <div className="fixed inset-0 z-40 bg-black bg-opacity-50" onClick={() => setShowPostForm(false)}>
+          <div
+            className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-black dark:text-white">Create a Post</h2>
+              <button onClick={() => setShowPostForm(false)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">✕</button>
+            </div>
+            <PostForm
+              presets={[]}
+              values={postFormValues}
+              onChange={setPostFormValues}
+              onSubmit={handleSubmitPost}
+              isSubmitting={isSubmitting}
+              error={submitError}
+              isAuthenticated={!!user}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Main Content - Posts Feed */}
       <main className="flex flex-1 w-full justify-center bg-white dark:bg-black px-8 py-8">
