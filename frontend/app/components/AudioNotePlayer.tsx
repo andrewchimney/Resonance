@@ -2,21 +2,17 @@
  * Audio Note Player Component
  * 
  * HOW TO USE:
- * 
- * 1. Copy this file to your Next.js project:
- *    /frontend/app/components/AudioNotePlayer.tsx
- * 
- * 2. Place your .wav file in the public directory:
+ * 1. Place your .wav file in the public directory:
  *    /frontend/public/your-audio.wav
  * 
- * 3. Import and use in any page:
+ * 2. Import and use in any page:
  *    import AudioNotePlayer from '@/app/components/AudioNotePlayer'
  * 
  *    export default function YourPage() {
  *      return <AudioNotePlayer audioPath="/your-audio.wav" />
  *    }
  * 
- * 4. Customize with optional props:
+ * 3. Customize with optional props:
  *    <AudioNotePlayer 
  *      audioPath="/your-audio.wav"      // REQUIRED - path to your .wav file in /public
  *      buttonText="Open Notes"          // Optional - custom button text
