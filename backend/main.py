@@ -8,7 +8,7 @@ import asyncpg
 import json
 import httpx
 from pydantic import BaseModel
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from dotenv import load_dotenv 
 load_dotenv()
 # Legacy Ollama config - now managed by llm/providers.py
@@ -373,6 +373,62 @@ async def get_presets():
         ]
     }
 
+
+@app.post("/api/presets/upload")
+async def upload_preset(
+    file: UploadFile = File(...),
+    access_token: Optional[str] = Form(None),
+):
+    """Upload a .vital file, render a WAV preview, store both in Supabase, and create a preset row."""
+    import uuid, base64, asyncio
+
+    vital_bytes = await file.read()
+
+    # Parse as JSON to validate it's a valid .vital file
+    try:
+        preset_dict = json.loads(vital_bytes.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid .vital file (not valid JSON)")
+
+    preset_id = str(uuid.uuid4())
+    preset_key = f"{preset_id}.vital"
+    preview_key = f"{preset_id}.wav"
+    title = file.filename.replace(".vital", "") if file.filename else "Untitled"
+
+    # Render WAV preview
+    loop = asyncio.get_event_loop()
+    wav_b64 = await loop.run_in_executor(None, render_preset_to_wav_b64, preset_dict)
+    wav_bytes = base64.b64decode(wav_b64) if wav_b64 else None
+
+    # Upload .vital to storage
+    supabase.storage.from_("presets").upload(
+        path=preset_key,
+        file=vital_bytes,
+        file_options={"content-type": "application/octet-stream", "upsert": "true"},
+    )
+
+    # Upload WAV preview to storage
+    if wav_bytes:
+        supabase.storage.from_("previews").upload(
+            path=preview_key,
+            file=wav_bytes,
+            file_options={"content-type": "audio/wav", "upsert": "true"},
+        )
+
+    # Insert preset row into DB
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute("""
+            INSERT INTO presets (id, supabase_key, title, visibility, preset_object_key, preview_object_key, source)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+        """, preset_id, preset_key, title, "public", preset_key,
+            preview_key if wav_bytes else None, "user_upload")
+    finally:
+        await conn.close()
+
+    return {"preset_id": preset_id}
+
+
 @app.get("/api/users/by-username/{username}")
 async def get_user_by_username(username: str):
     conn = await asyncpg.connect(DATABASE_URL)
@@ -603,13 +659,14 @@ async def get_posts(search: Optional[str] = Query(None)):
             p.created_at,
             p.votes,
             u.username as author_username,
+            u.profile_picture as author_avatar,
             pr.preview_object_key,
             pr.preset_object_key
         FROM posts p
         LEFT JOIN users u ON p.owner_user_id = u.id
         LEFT JOIN presets pr ON p.preset_id = pr.id
         WHERE p.visibility = 'public'
-            AND (p.title ILIKE $1 OR p.description ILIKE $1) 
+            AND (p.title ILIKE $1 OR p.description ILIKE $1)
         ORDER BY p.created_at DESC    """, f"%{search}%")
     else:
         # No search: return all public posts
@@ -624,6 +681,7 @@ async def get_posts(search: Optional[str] = Query(None)):
             p.created_at,
             p.votes,
             u.username as author_username,
+            u.profile_picture as author_avatar,
             pr.preview_object_key,
             pr.preset_object_key
         FROM posts p
@@ -647,7 +705,8 @@ async def get_posts(search: Optional[str] = Query(None)):
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 "votes": r["votes"] or 0,
                 "author": {
-                    "username": r["author_username"]
+                    "username": r["author_username"],
+                    "avatar": r["author_avatar"],
                 } if r["author_username"] else None,
                 "preview_url": get_preview_url(r["preview_object_key"]),
             }
@@ -1365,3 +1424,5 @@ def get_preview_url(preview_object_key: str | None) -> str | None:
     if not preview_object_key or not PREVIEWS_BUCKET:
         return None
     return f"{PREVIEWS_BUCKET}/{preview_object_key}"
+
+
