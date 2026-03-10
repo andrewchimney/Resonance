@@ -20,6 +20,7 @@ export interface PostFormValues {
     description: string; // The description of the post being created
     preset_id: string | null; // The ID of the selected preset or null if no preset is selected
     uploaded_file: File | null; // A .vital file uploaded by the user
+    postAnonymously: boolean; // Whether to post without attaching the user's account
 }
 
 /**
@@ -140,6 +141,19 @@ export default function PostForm({
                     </button>
                 )}
             </div>
+
+            {/* Post Anonymously checkbox: only shown when logged in */}
+            {isAuthenticated && (
+                <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={values.postAnonymously}
+                        onChange={(e) => onChange({ ...values, postAnonymously: e.target.checked })}
+                        className="rounded border-zinc-300 dark:border-zinc-600"
+                    />
+                    Post anonymously
+                </label>
+            )}
 
             {/* Optional error message */}
             {error && (
