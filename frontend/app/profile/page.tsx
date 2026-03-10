@@ -440,12 +440,21 @@ export default function ProfilePage() {
           {searchError && <p className="text-xs text-red-500">{searchError}</p>}
         </form>
 
-        <button
-          onClick={() => router.push("/generate")}
-          className="text-sm font-semibold hover:underline shrink-0"
-        >
-          Generate
-        </button>
+        <div className="flex items-center gap-6">
+          <button
+            onClick={() => router.push("/browse")}
+            className="text-sm font-semibold hover:underline shrink-0"
+          >
+            Browse
+          </button>
+
+          <button
+            onClick={() => router.push("/generate")}
+            className="text-sm font-semibold hover:underline shrink-0"
+          >
+            Generate
+          </button>
+        </div>
       </nav>
 
       {/* BACKGROUND */}
