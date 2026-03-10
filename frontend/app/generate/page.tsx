@@ -60,6 +60,8 @@ export default function GeneratePage() {
   const [showAuthPanel, setShowAuthPanel] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [usePreferences, setUsePreferences] = useState(false);
+  const [generationPreferences, setGenerationPreferences] = useState("");
   
   // Chat state
   const [inputValue, setInputValue] = useState("");
@@ -114,6 +116,32 @@ export default function GeneratePage() {
     };
   }, [supabase]);
 
+  useEffect(() => {
+    if (!supabase || !user) {
+      setGenerationPreferences("");
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadPreferences = async () => {
+      const { data, error } = await supabase
+        .from("users")
+        .select("generation_preferences")
+        .eq("id", user.id)
+        .single();
+
+      if (!isMounted || error) return;
+      setGenerationPreferences(data?.generation_preferences ?? "");
+    };
+
+    loadPreferences();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [supabase, user]);
+
   const handleDiscordLogin = async () => {
     if (!supabase) {
       setAuthError("Supabase not configured (set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY).");
@@ -145,6 +173,11 @@ export default function GeneratePage() {
     if (!inputValue.trim()) return;
 
     const query = inputValue.trim();
+    const preferenceContext = generationPreferences.trim();
+    const queryWithPreferences =
+      usePreferences && preferenceContext
+        ? `${query}\n\nUser preferences: ${preferenceContext}`
+        : query;
     setInputValue("");
 
     // -----------------------------------------------------------------------
@@ -180,12 +213,12 @@ export default function GeneratePage() {
         const requestBody = isFirstModification
           ? {
               preset_id: selectedPreset!.preset.id,
-              description: query,
+              description: queryWithPreferences,
               context: `The user is modifying an existing preset called "${presetName}".`,
             }
           : {
               preset_data: currentPresetData,
-              description: query,
+              description: queryWithPreferences,
               context: `The user is further modifying a preset called "${presetName}".`,
             };
 
@@ -264,7 +297,7 @@ export default function GeneratePage() {
       const retrieveRes = await fetch(`${API_BASE_URL}/api/retrieve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, k: 5 }),
+        body: JSON.stringify({ query: queryWithPreferences, k: 5 }),
       });
 
       if (!retrieveRes.ok) {
@@ -456,6 +489,20 @@ export default function GeneratePage() {
               <h1 className="text-4xl font-semibold tracking-tight text-black sm:text-6xl md:text-7xl dark:text-zinc-50">
                 Resonance
               </h1>
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setUsePreferences((prev) => !prev)}
+                  disabled={!sessionLoading && !user}
+                  className={`rounded-xl border px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    usePreferences
+                      ? "border-black bg-black text-white hover:bg-zinc-800 dark:border-white dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                      : "border-zinc-300 bg-white text-black hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  Utilize My Preferences
+                </button>
+              </div>
               <div className="relative w-full">
                 <form onSubmit={handleSubmit} className="w-full">
                   <input
@@ -671,7 +718,19 @@ export default function GeneratePage() {
                     </button>
                   </div>
                 )}
-                <form onSubmit={handleSubmit} className="flex gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setUsePreferences((prev) => !prev)}
+                    className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+0.5rem)] rounded-xl border px-4 py-3 text-sm font-medium transition sm:text-base ${
+                      usePreferences
+                        ? "border-black bg-black text-white hover:bg-zinc-800 dark:border-white dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                        : "border-zinc-300 bg-white text-black hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    Preferences
+                  </button>
+                  <form onSubmit={handleSubmit} className="flex gap-2">
                   <input
                     type="text"
                     value={inputValue}
@@ -692,7 +751,8 @@ export default function GeneratePage() {
                   >
                     {selectedPreset || currentPresetData ? "Modify" : "Send"}
                   </button>
-                </form>
+                  </form>
+                </div>
               </div>
             </div>
           )}
