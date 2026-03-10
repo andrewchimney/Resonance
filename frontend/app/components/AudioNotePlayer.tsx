@@ -32,7 +32,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 interface AudioNotePlayerProps {
   audioPath: string          // Path to .wav file (e.g., "/audio/sound.wav")
@@ -46,6 +46,8 @@ export default function AudioNotePlayer({
   className = ''
 }: AudioNotePlayerProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const currentContextRef = useRef<AudioContext | null>(null)
 
   const NOTES = [
     { name: 'C', semitones: 0, isSharp: false },
@@ -64,6 +66,16 @@ export default function AudioNotePlayer({
 
   const playNote = async (semitones: number, noteName: string) => {
     try {
+      // Stop currently playing note
+      if (currentSourceRef.current) {
+        currentSourceRef.current.stop()
+        currentSourceRef.current = null
+      }
+      if (currentContextRef.current) {
+        await currentContextRef.current.close()
+        currentContextRef.current = null
+      }
+
       const audioContext = new AudioContext()
       const response = await fetch(audioPath)
       const arrayBuffer = await response.arrayBuffer()
@@ -74,7 +86,14 @@ export default function AudioNotePlayer({
       source.playbackRate.value = Math.pow(2, semitones / 12)
       source.connect(audioContext.destination)
       source.start(0)
-      
+
+      currentSourceRef.current = source
+      currentContextRef.current = audioContext
+
+      source.onended = () => {
+        currentSourceRef.current = null
+      }
+
       console.log(`Playing: ${noteName} (${semitones} semitones, rate: ${source.playbackRate.value.toFixed(3)})`)
     } catch (error) {
       console.error(`Error playing ${noteName}:`, error)
@@ -86,23 +105,23 @@ export default function AudioNotePlayer({
       {/* Trigger Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ${className}`}
+        className={`text-sm underline text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 ${className}`}
       >
         {isOpen ? 'Close' : buttonText}
       </button>
 
       {/* Sliding Panel */}
       <div
-        className={`fixed top-0 right-0 h-full w-96 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
+        className={`fixed top-0 right-0 h-full w-96 bg-white dark:bg-zinc-900 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold">Note Player</h2>
+            <h2 className="text-2xl font-bold text-black dark:text-white">Note Player</h2>
             <button
               onClick={() => setIsOpen(false)}
-              className="text-gray-500 hover:text-gray-700 text-2xl"
+              className="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 text-2xl"
             >
               ×
             </button>
@@ -115,9 +134,9 @@ export default function AudioNotePlayer({
                 onClick={() => playNote(note.semitones, note.name)}
                 className={`
                   h-24 rounded-lg font-bold text-lg transition-all hover:scale-105 active:scale-95
-                  ${note.isSharp 
-                    ? 'bg-gray-800 text-white hover:bg-gray-700' 
-                    : 'bg-white text-gray-800 hover:bg-gray-100 border-2 border-gray-300'
+                  ${note.isSharp
+                    ? 'bg-zinc-900 text-white hover:bg-zinc-700 border border-zinc-600'
+                    : 'bg-zinc-100 text-zinc-900 hover:bg-zinc-200 border-2 border-zinc-400 dark:bg-zinc-600 dark:text-white dark:hover:bg-zinc-500 dark:border-zinc-400'
                   }
                 `}
               >
@@ -131,7 +150,7 @@ export default function AudioNotePlayer({
       {/* Backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-30 transition-opacity duration-300 z-40"
+          className="fixed inset-0 transition-opacity duration-300 z-40"
           onClick={() => setIsOpen(false)}
         />
       )}
