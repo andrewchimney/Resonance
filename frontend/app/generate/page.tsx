@@ -7,7 +7,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 import Navbar from "@/app/components/Navbar";
 import Footer from "@/app/components/Footer";
-import LoginPanel from "@/app/components/Authentication/LoginPanel";
+import CreatePostDialog from "@/app/components/CreatePost/CreatePostDialog";
+import PostForm, { type PostFormValues } from "@/app/components/CreatePost/PostForm";
 
 type PresetResult = {
   id: string;
@@ -61,6 +62,11 @@ export default function GeneratePage() {
   const [authLoading, setAuthLoading] = useState(false);
   const [usePreferences, setUsePreferences] = useState(false);
   const [generationPreferences, setGenerationPreferences] = useState("");
+  const [showCreatePost, setShowCreatePost] = useState(false);
+  const [showPostForm, setShowPostForm] = useState(false);
+  const [postFormValues, setPostFormValues] = useState<PostFormValues>({ title: "", description: "", preset_id: null, uploaded_file: null });
+  const [isSubmittingPost, setIsSubmittingPost] = useState(false);
+  const [submitPostError, setSubmitPostError] = useState<string | null>(null);
   
   // Chat state
   const [inputValue, setInputValue] = useState("");
@@ -350,6 +356,48 @@ export default function GeneratePage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const handleCreatePostClick = () => {
+    if (user) {
+      setShowPostForm(true);
+    } else {
+      setShowCreatePost(true);
+    }
+  };
+
+  const handleSubmitPost = async () => {
+    if (!postFormValues.title.trim()) return;
+    setIsSubmittingPost(true);
+    setSubmitPostError(null);
+    try {
+      let preset_id = postFormValues.preset_id;
+      if (postFormValues.uploaded_file) {
+        const fd = new FormData();
+        fd.append("file", postFormValues.uploaded_file);
+        if (user) {
+          const { data: session } = await supabase!.auth.getSession();
+          if (session.session?.access_token) fd.append("access_token", session.session.access_token);
+        }
+        const uploadRes = await fetch(`${API_BASE_URL}/api/presets/upload`, { method: "POST", body: fd });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          preset_id = uploadData.preset_id ?? preset_id;
+        }
+      }
+      const res = await fetch(`${API_BASE_URL}/posts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: postFormValues.title, description: postFormValues.description || null, preset_id, owner_user_id: user?.id ?? null, visibility: "public" }),
+      });
+      if (!res.ok) throw new Error("Failed to create post");
+      setShowPostForm(false);
+      setPostFormValues({ title: "", description: "", preset_id: null, uploaded_file: null });
+    } catch (err) {
+      setSubmitPostError(err instanceof Error ? err.message : "Failed to create post");
+    } finally {
+      setIsSubmittingPost(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-zinc-50 font-sans dark:bg-black">
       {/* Navbar */}
@@ -357,23 +405,89 @@ export default function GeneratePage() {
         user={user}
         onLoginClick={() => setShowAuthPanel(true)}
         onProfileClick={() => setShowAuthPanel((open) => !open)}
-        onCreatePost={() => router.push("/browse?create=1")}
+        onCreatePost={handleCreatePostClick}
       // searchQuery={searchQuery}
       // onSearchChange={setSearchQuery}
       />
 
       {showAuthPanel && (
-        <div className="fixed right-6 top-16 z-50 w-80">
-          <LoginPanel
-            onClose={() => setShowAuthPanel(false)}
-            onLoginSuccess={(newUser: User) => {
-              setUser(newUser);
-              setShowAuthPanel(false);
-            }}
-          />
+        <div className="fixed right-6 top-16 z-50 w-80 rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl shadow-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-semibold text-black dark:text-white">Account</div>
+            <button
+              className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              onClick={() => setShowAuthPanel(false)}
+            >
+              Close
+            </button>
+          </div>
+          {user ? (
+            <div className="space-y-3">
+              <button
+                onClick={() => router.push("/profile")}
+                className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 w-full"
+              >
+                Signed in as <span className="font-medium">{user.email}</span>
+              </button>
+              <button
+                onClick={async () => { await supabase?.auth.signOut(); setShowAuthPanel(false); }}
+                className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-sm text-zinc-700 dark:text-zinc-200">Sign in to continue</div>
+              <button
+                onClick={async () => {
+                  if (!supabase) return;
+                  setAuthError(null); setAuthLoading(true);
+                  const { error } = await supabase.auth.signInWithOAuth({ provider: "discord", options: { redirectTo: `${window.location.origin}/auth/callback` } });
+                  setAuthLoading(false);
+                  if (error) setAuthError(error.message);
+                }}
+                disabled={authLoading}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+              >
+                <span aria-hidden>💬</span>
+                {authLoading ? "Redirecting..." : "Continue with Discord"}
+              </button>
+              {authError && <div className="text-xs text-red-600 dark:text-red-400">{authError}</div>}
+            </div>
+          )}
         </div>
       )}
 
+
+      <CreatePostDialog
+        isOpen={showCreatePost}
+        onClose={() => setShowCreatePost(false)}
+        onPostAnonymously={() => { setShowCreatePost(false); setShowPostForm(true); }}
+      />
+
+      {showPostForm && (
+        <div className="fixed inset-0 z-40 bg-black bg-opacity-50" onClick={() => setShowPostForm(false)}>
+          <div
+            className="fixed left-1/2 top-1/2 z-50 w-[480px] max-w-[95vw] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-lg dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-black dark:text-white">Create a Post</h2>
+              <button onClick={() => setShowPostForm(false)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">✕</button>
+            </div>
+            <PostForm
+              presets={[]}
+              values={postFormValues}
+              onChange={setPostFormValues}
+              onSubmit={handleSubmitPost}
+              isSubmitting={isSubmittingPost}
+              error={submitPostError}
+              isAuthenticated={!!user}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="flex min-h-[calc(100vh-72px)] w-full items-stretch justify-center gap-4 overflow-hidden bg-white px-4 pt-6 sm:px-6 sm:pt-8 dark:bg-black lg:gap-8">

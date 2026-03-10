@@ -83,15 +83,15 @@ export default function LoginPanel({
          * - The listener will trigger whenever there is a change in the user's authentication state
          * - This includes: Signed in, signed out, token refreshed, etc.
          */
-        const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
             // Don't update the state if the component has already unmounted
             if (!isMounted) return;
             // Update the user state based on the new session
             // If a session exists, set user as logged-in, otherwise set user to null (logged-out)
             setUser(session?.user ?? null);
 
-            // This will notify the parent component when a user successfully logs in
-            if (session?.user && onLoginSuccess) {
+            // Only notify parent on an actual new sign-in, not on the initial session restore
+            if (event === "SIGNED_IN" && session?.user && onLoginSuccess) {
                 onLoginSuccess(session.user);
             }
         });
