@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
+import Navbar from "@/app/components/Navbar";
+import Footer from "@/app/components/Footer";
+import LoginPanel from "@/app/components/Authentication/LoginPanel";
 
 type PresetResult = {
   id: string;
@@ -50,11 +53,7 @@ const placeholderExamples = [
 
 export default function GeneratePage() {
   const router = useRouter();
-  const [placeholder] = useState(() => 
-    typeof window !== "undefined" 
-      ? placeholderExamples[Math.floor(Math.random() * placeholderExamples.length)]
-      : ""
-  );
+  const [placeholder, setPlaceholder] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [showAuthPanel, setShowAuthPanel] = useState(false);
@@ -85,7 +84,7 @@ export default function GeneratePage() {
   const PREVIEWS_BUCKET = process.env.NEXT_PUBLIC_PREVIEWS_BUCKET;
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
-  
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -93,6 +92,12 @@ export default function GeneratePage() {
     if (!supabaseUrl || !supabaseAnonKey) return null;
     return createClient(supabaseUrl, supabaseAnonKey);
   }, [supabaseAnonKey, supabaseUrl]);
+
+  useEffect(() => {
+    setPlaceholder(
+      placeholderExamples[Math.floor(Math.random() * placeholderExamples.length)]
+    );
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -161,6 +166,8 @@ export default function GeneratePage() {
     setAuthLoading(false);
     if (error) setAuthError(error.message);
   };
+
+
 
   const handleSignOut = async () => {
     if (!supabase) return;
@@ -346,143 +353,58 @@ export default function GeneratePage() {
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-zinc-50 font-sans dark:bg-black">
       {/* Navbar */}
-      <nav className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 sm:flex-nowrap sm:justify-between sm:gap-4 sm:px-6 sm:py-4 dark:border-zinc-800 dark:bg-black">
-        {/* Logo/Brand */}
-        <Link href="/" className="text-xl font-semibold text-black dark:text-white hover:opacity-80 transition">
-          Resonance
-        </Link>
-        
-        {/* Search Box */}
-        <div className="order-3 w-full sm:order-2 sm:mx-6 sm:block sm:max-w-2xl sm:flex-1">
-          <input
-            type="text"
-            placeholder="Search..."
-            className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
+      <Navbar
+        user={user}
+        onLoginClick={() => setShowAuthPanel(true)}
+        onProfileClick={() => setShowAuthPanel((open) => !open)}
+        onCreatePost={() => router.push("/browse?create=1")}
+      // searchQuery={searchQuery}
+      // onSearchChange={setSearchQuery}
+      />
+
+      {showAuthPanel && (
+        <div className="fixed right-6 top-16 z-50 w-80">
+          <LoginPanel
+            onClose={() => setShowAuthPanel(false)}
+            onLoginSuccess={(newUser: User) => {
+              setUser(newUser);
+              setShowAuthPanel(false);
+            }}
           />
         </div>
-        
-        {/* Browse and Profile */}
-        <div className="relative order-2 ml-auto flex items-center gap-4 sm:order-3 sm:ml-0 sm:gap-6">
-          <Link href="/browse" className="text-sm font-medium text-black transition-colors hover:text-zinc-600 hover:underline dark:text-white dark:hover:text-zinc-300 cursor-pointer">
-            Browse
-          </Link>
-          {user ? (
-            <button
-              aria-label="Profile"
-              onClick={() => setShowAuthPanel((open) => !open)}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 transition-colors hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 cursor-pointer"
-            >
-              <svg
-                className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-              </svg>
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowAuthPanel((open) => !open)}
-              className="text-sm font-medium text-black transition-colors hover:text-zinc-600 dark:text-white dark:hover:text-zinc-300 cursor-pointer"
-            >
-              Log In
-            </button>
-          )}
+      )}
 
-          {showAuthPanel && (
-            <div className="fixed left-3 right-3 top-16 z-50 rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl shadow-zinc-900/10 sm:left-auto sm:right-6 sm:w-80 dark:border-zinc-800 dark:bg-zinc-900">
-              {!supabase && (
-                <div className="text-sm text-red-600 dark:text-red-400">
-                  Supabase env vars missing. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.
-                </div>
-              )}
-
-              {supabase && (
-                <>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-sm font-semibold text-black dark:text-white">Account</div>
-                    <button
-                      className="hover:cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-                      onClick={() => setShowAuthPanel(false)}
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  {user ? (
-                    <div className="space-y-3">
-                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100">
-                        Signed in as <span className="font-medium">{user.email}</span>
-                      </div>
-                      <button
-                        onClick={() => { router.push("/profile"); setShowAuthPanel(false); }}
-                        className="hover:cursor-pointer w-full rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
-                      >
-                        View Profile
-                      </button>
-                      <button
-                        onClick={handleSignOut}
-                        className="hover:cursor-pointer w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-                      >
-                        Sign out
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <button
-                        onClick={handleDiscordLogin}
-                        disabled={authLoading}
-                        className="cursor-pointer flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
-                      >
-                        <Image src="/discord_logo.png" alt="Discord" width={18} height={18} className="shrink-0" />
-                        {authLoading ? "Redirecting..." : "Continue with Discord"}
-                      </button>
-                      {authError && <div className="text-xs text-red-600 dark:text-red-400">{authError}</div>}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </nav>
 
       {/* Main Content */}
-      <main className="flex w-full flex-1 items-start justify-center gap-4 overflow-hidden bg-white px-4 pt-6 sm:px-6 sm:pt-8 dark:bg-black lg:gap-8">
+      <main className="flex min-h-[calc(100vh-72px)] w-full items-stretch justify-center gap-4 overflow-hidden bg-white px-4 pt-6 sm:px-6 sm:pt-8 dark:bg-black lg:gap-8">
         {/* Left Robot Image */}
-        <div className="hidden h-full justify-end lg:flex" style={{ width: '260px' }}>
-          <div className="pt-16">
-          <div className="flex justify-end pr-8 xl:pr-20">
-          <Image
-            className="dark:invert scale-y-[-4.5]"
-            src="/robot-black.svg"
-            alt="SynthGPT logo"
-            width={120}
-            height={120}
-            priority
-          />
-          </div>
-          <div className="flex justify-end pr-8 xl:pr-20">
-          <Image
-            className="dark:invert scale-y-[4.5]"
-            src="/robot-black.svg"
-            alt="SynthGPT logo"
-            width={120}
-            height={120}
-            priority
-          />
-          </div>
+        <div className="hidden self-stretch justify-end lg:flex" style={{ width: '260px' }}>
+          <div className="pt-40">
+            <div className="flex justify-end pr-8 xl:pr-20">
+              <Image
+                className="dark:invert scale-y-[-5.7]"
+                src="/robot-black.svg"
+                alt="SynthGPT logo"
+                width={120}
+                height={120}
+                priority
+              />
+            </div>
+            <div className="flex justify-end pr-8 xl:pr-20">
+              <Image
+                className="dark:invert scale-y-[5.7]"
+                src="/robot-black.svg"
+                alt="SynthGPT logo"
+                width={120}
+                height={120}
+                priority
+              />
+            </div>
           </div>
         </div>
-        
+
         {/* Center Content */}
-        <div className="flex min-w-0 w-full max-w-2xl flex-col">
+        <div className="flex min-w-0 w-full max-w-2xl flex-col justify-center">
           {!showChat ? (
             // Initial hero view
             <div className="flex flex-col items-center gap-6 text-center sm:gap-8">
@@ -551,11 +473,10 @@ export default function GeneratePage() {
                       </div>
                     ) : (
                       <div
-                        className={`max-w-[92%] rounded-lg border px-4 py-2 sm:max-w-[80%] ${
-                          message.role === "user"
-                            ? "bg-black text-white border-white dark:bg-white dark:text-black dark:border-black"
-                            : "bg-white text-black border-black dark:bg-black dark:text-white dark:border-white"
-                        }`}
+                        className={`max-w-[92%] rounded-lg border px-4 py-2 sm:max-w-[80%] ${message.role === "user"
+                          ? "bg-black text-white border-white dark:bg-white dark:text-black dark:border-black"
+                          : "bg-white text-black border-black dark:bg-black dark:text-white dark:border-white"
+                          }`}
                       >
                         <div className={message.error ? "text-red-600 dark:text-red-400" : ""}>
                           {message.content}
@@ -584,9 +505,8 @@ export default function GeneratePage() {
                                   const url = URL.createObjectURL(blob);
                                   const a = document.createElement("a");
                                   a.href = url;
-                                  a.download = `${
-                                    (message.presetChanges!.presetName || "preset").replace(/\s+/g, "_")
-                                  }_modified.vital`;
+                                  a.download = `${(message.presetChanges!.presetName || "preset").replace(/\s+/g, "_")
+                                    }_modified.vital`;
                                   document.body.appendChild(a);
                                   a.click();
                                   document.body.removeChild(a);
@@ -629,13 +549,12 @@ export default function GeneratePage() {
                                     <div
                                       key={presetIndex}
                                       onClick={() => setSelectedPreset({ messageIndex: index, preset })}
-                                      className={`cursor-pointer rounded border-t border-black pt-2 mt-2 transition dark:border-white ${
-                                        isSelected
-                                          ? "ring-2 ring-cyan-400"
-                                          : anySelected
+                                      className={`cursor-pointer rounded border-t border-black pt-2 mt-2 transition dark:border-white ${isSelected
+                                        ? "ring-2 ring-cyan-400"
+                                        : anySelected
                                           ? "opacity-40"
                                           : "hover:opacity-80"
-                                      }`}
+                                        }`}
                                     >
                                       <div className="flex items-center justify-between mb-1">
                                         <div className="flex-1">
@@ -739,8 +658,8 @@ export default function GeneratePage() {
                       selectedPreset
                         ? `Describe how to modify "${selectedPreset.preset.title}"...`
                         : currentPresetData
-                        ? `Describe further changes to "${currentPresetName}"...`
-                        : "Type your message..."
+                          ? `Describe further changes to "${currentPresetName}"...`
+                          : "Type your message..."
                     }
                     className="flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-6 py-3 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
                   />
@@ -759,31 +678,34 @@ export default function GeneratePage() {
         </div>
 
         {/* Right Robot Image (Mirrored) */}
-        <div className="hidden h-full justify-start lg:flex" style={{ width: '260px' }}>
-          <div className="pt-16">
-          <div className="flex justify-start pl-8 xl:pl-20">
-          <Image
-            className="dark:invert scale-y-[-4.5] scale-x-[-1]"
-            src="/robot-black.svg"
-            alt="SynthGPT logo"
-            width={120}
-            height={120}
-            priority
-          />
-          </div>
-          <div className="flex justify-start pl-8 xl:pl-20">
-          <Image
-            className="dark:invert scale-y-[4.5] scale-x-[-1]"
-            src="/robot-black.svg"
-            alt="SynthGPT logo"
-            width={120}
-            height={120}
-            priority
-          />
-          </div>
+        <div className="hidden self-stretch justify-start lg:flex" style={{ width: '260px' }}>
+          <div className="pt-40">
+            <div className="flex justify-start pl-8 xl:pl-20">
+              <Image
+                className="dark:invert scale-y-[-5.5] scale-x-[-1]"
+                src="/robot-black.svg"
+                alt="SynthGPT logo"
+                width={120}
+                height={120}
+                priority
+              />
+            </div>
+            <div className="flex justify-start pl-8 xl:pl-20">
+              <Image
+                className="dark:invert scale-y-[5.5] scale-x-[-1]"
+                src="/robot-black.svg"
+                alt="SynthGPT logo"
+                width={120}
+                height={120}
+                priority
+              />
+            </div>
           </div>
         </div>
       </main>
+      <footer >
+        <Footer />
+      </footer>
     </div>
   );
 }

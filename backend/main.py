@@ -1,10 +1,12 @@
 # Main server file, will process requests and use logic from rag folder to respond to frontend requests
-
+from supabase import create_client
 from contextlib import asynccontextmanager
 import json
 import os
-from typing import Optional
+from typing import Optional, Literal
 import asyncpg
+import json
+import httpx
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv 
@@ -19,6 +21,7 @@ from fastapi.responses import StreamingResponse
 import httpx
 
 import laion_clap
+import numpy as np
 
 
 from rag.retrieve import router as retrieve_router
@@ -37,6 +40,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 PRESETS_BUCKET = os.getenv("PRESETS_BUCKET")
 PREVIEWS_BUCKET = os.getenv("PREVIEWS_BUCKET")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 def load_model():
@@ -420,6 +425,140 @@ async def get_user_id(id: str):
 # 	•	POST /api/generate
 
 
+
+
+@app.get("/api/feed")
+async def get_feed(
+    type: str = "new",
+    user_uuid: Optional[str] = None,
+    search: Optional[str] = Query(None)
+):
+    conn = await asyncpg.connect(DATABASE_URL)
+
+    try:
+        if type == "new":
+            if search:
+                rows = await conn.fetch("""
+                    SELECT *
+                    FROM posts
+                    WHERE visibility = 'public'
+                      AND (title ILIKE $1 OR description ILIKE $1)
+                    ORDER BY created_at DESC
+                """, f"%{search}%")
+            else:
+                rows = await conn.fetch("""
+                    SELECT *
+                    FROM posts
+                    WHERE visibility = 'public'
+                    ORDER BY created_at DESC
+                """)
+
+        elif type == "trending":
+            if search:
+                rows = await conn.fetch("""
+                    SELECT *,
+                    votes / POW(EXTRACT(EPOCH FROM (NOW() - created_at))/3600 + 2, 1.5) AS score
+                    FROM posts
+                    WHERE visibility = 'public'
+                      AND (title ILIKE $1 OR description ILIKE $1)
+                    ORDER BY score DESC
+                """, f"%{search}%")
+            else:
+                rows = await conn.fetch("""
+                    SELECT *,
+                    votes / POW(EXTRACT(EPOCH FROM (NOW() - created_at))/3600 + 2, 1.5) AS score
+                    FROM posts
+                    WHERE visibility = 'public'
+                    ORDER BY score DESC
+                """)
+
+        elif type == "recommended":
+            if not user_uuid:
+                return {"error": "user_uuid is required for recommended feed"}
+
+            saved = (
+                supabase
+                .table("saved_presets")
+                .select("id, owner_user_id, preset_uuid")
+                .eq("owner_user_id", str(user_uuid))
+                .execute()
+            )
+
+            preset_ids = [row["preset_uuid"] for row in (saved.data or []) if row.get("preset_uuid")]
+            if not preset_ids:
+                return {
+                    "feed": type,
+                    "user_uuid": user_uuid,
+                    "posts": [],
+                    "message": "no saved presets"
+                }
+
+            pres = (
+                supabase
+                .table("presets")
+                .select("id, embedding")
+                .in_("id", preset_ids)
+                .execute()
+            )
+
+            vectors = []
+            for r in (pres.data or []):
+                e = r.get("embedding")
+                if e is None:
+                    continue
+
+                if isinstance(e, str):
+                    e = e.strip()
+                    if e.startswith("[") and e.endswith("]"):
+                        e = np.fromstring(e[1:-1], sep=",", dtype=np.float32)
+                    else:
+                        continue
+                else:
+                    e = np.asarray(e, dtype=np.float32)
+
+                vectors.append(e)
+
+            if not vectors:
+                return {
+                    "feed": type,
+                    "user_uuid": user_uuid,
+                    "posts": [],
+                    "message": "no embeddings found for saved presets"
+                }
+
+            mat = np.vstack(vectors)
+            avg = mat.mean(axis=0)
+            avg = avg / (np.linalg.norm(avg) + 1e-9)
+            avg_list = avg.tolist()
+
+            posts_res = supabase.rpc(
+                "match_posts",
+                {"query_embedding": avg_list, "match_count": 50}
+            ).execute()
+
+            results = posts_res.data or []
+
+            if search:
+                s = search.lower()
+                results = [
+                    p for p in results
+                    if s in (p.get("title") or "").lower()
+                    or s in (p.get("description") or "").lower()
+                ]
+
+            return {
+                "feed": type,
+                "user_uuid": user_uuid,
+                "posts": results[:10]
+            }
+
+        else:
+            return {"error": "invalid feed type"}
+
+        return {"feed": type, "posts": [dict(r) for r in rows]}
+
+    finally:
+        await conn.close()
 # ==================== POSTS API ====================
 
 @app.get("/api/posts")
@@ -635,30 +774,52 @@ async def downvote_post(post_id: str, user_id: Optional[str] = Query(None)):
 
 
 # ==================== COMMENTS API ====================
-
+# This section will fetch and create comments for posts, as well as upvote/downvote comments
 @app.get("/api/posts/{post_id}/comments")
-async def get_post_comments(post_id: str):
-    """Get all comments for a post"""
+async def get_post_comments(
+    post_id: str,
+    sort: Literal["recent", "relevant", "interacted"] = Query("recent"), # The allowed sort options are recent, relevant, interacted
+):
+    """
+    Get all comments for a post with optional sorting
+    
+    Sorting options:
+    - recent: newest comments first
+    - relevant: vote score weighted by recency (votes / hours since creation)
+    - interacted: highest vote score first (ignore recency)
+    """ 
+    # Decide order by cause based on sort option
+    order_by_map = {
+        "recent": "c.created_at DESC",
+        "relevant": """
+            (COALESCE(c.votes, 0)::float / GREATEST(EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 3600, 1))
+            DESC, c.created_at DESC
+        """,
+        "interacted": "ABS(COALESCE(c.votes, 0)) DESC, c.created_at DESC",
+    }
+    order_by = order_by_map[sort]
+    
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    rows = await conn.fetch("""
-        SELECT 
-            c.id,
-            c.post_id,
-            c.owner_user_id,
-            c.body,
-            c.visibility,
-            c.created_at,
-            c.votes,
-            c.preset_id,
-            u.username as author_username
-        FROM comments c
-        LEFT JOIN users u ON c.owner_user_id = u.id
-        WHERE c.post_id = $1
-        ORDER BY c.created_at ASC
-    """, post_id)
-    
-    await conn.close()
+    try:
+        # This will join the user table so the frontend can render the author username
+        rows = await conn.fetch(f"""
+            SELECT 
+                c.id,
+                c.post_id,
+                c.owner_user_id,
+                c.body,
+                c.visibility,
+                c.created_at,
+                c.votes,
+                c.preset_id,
+                u.username as author_username
+            FROM comments c
+            LEFT JOIN users u ON c.owner_user_id = u.id
+            WHERE c.post_id = $1
+            ORDER BY {order_by}
+        """, post_id)
+    finally:
+        await conn.close()
     
     return {
         "comments": [
@@ -681,26 +842,31 @@ async def get_post_comments(post_id: str):
 
 
 class CommentCreate(BaseModel):
-    body: str
-    preset_id: Optional[str] = None
-    visibility: Optional[str] = "public"
+    body: str # Comment text entered by the user
+    preset_id: Optional[str] = None # An optional preset attachment if the comment is also sharing a preset
+    visibility: Optional[str] = "public" # Visibility of the comment (public or private)
 
 
 @app.post("/api/posts/{post_id}/comments")
 async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional[str] = Query(None)):
-    """Create a comment on a post"""
-    # Allow comments from authenticated users or anonymous users
+    """Create a comment on a post. This will require an authenticated user_id"""
+    # This will trim the whitespace from the comment body and ensure it's not empty before inserting into the database
+    body = (comment.body or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Comment body cannot be empty")
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
     conn = await asyncpg.connect(DATABASE_URL)
-
-    owner_id = user_id if user_id else None
-    
-    row = await conn.fetchrow("""
-        INSERT INTO comments (post_id, owner_user_id, body, preset_id, visibility, votes)
-        VALUES ($1, $2, $3, $4, $5, 0)
-        RETURNING id, created_at
-    """, post_id, owner_id, comment.body, comment.preset_id, comment.visibility)
-    
-    await conn.close()
+    try:
+        row = await conn.fetchrow("""
+            INSERT INTO comments (post_id, owner_user_id, body, preset_id, visibility, votes)
+            VALUES ($1, $2, $3, $4, $5, 0)
+            RETURNING id, created_at
+        """, post_id, user_id, body, comment.preset_id, comment.visibility)
+    finally:
+        await conn.close()
     
     return {
         "id": str(row["id"]),
@@ -709,17 +875,18 @@ async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional
 
 
 @app.post("/api/comments/{comment_id}/upvote")
-async def upvote_comment(comment_id: str, user_id: Optional[str] = Query(None)):
-    """Upvote a comment"""
+async def upvote_comment(comment_id: str):
+    """Upvote a comment. This will increment a comment vote score by +1."""
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
-        UPDATE comments SET votes = COALESCE(votes, 0) + 1
-        WHERE id = $1
-        RETURNING votes
-    """, comment_id)
-    
-    await conn.close()
+    try:
+        row = await conn.fetchrow("""
+            UPDATE comments 
+            SET votes = COALESCE(votes, 0) + 1
+            WHERE id = $1
+            RETURNING votes
+        """, comment_id)
+    finally:
+        await conn.close()
     
     if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -728,17 +895,18 @@ async def upvote_comment(comment_id: str, user_id: Optional[str] = Query(None)):
 
 
 @app.post("/api/comments/{comment_id}/downvote")
-async def downvote_comment(comment_id: str, user_id: Optional[str] = Query(None)):
-    """Downvote a comment"""
+async def downvote_comment(comment_id: str):
+    """Downvote a comment. This will decrement a comment vote score by -1."""
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
-        UPDATE comments SET votes = COALESCE(votes, 0) - 1
-        WHERE id = $1
-        RETURNING votes
-    """, comment_id)
-    
-    await conn.close()
+    try:
+        row = await conn.fetchrow("""
+            UPDATE comments 
+            SET votes = COALESCE(votes, 0) - 1
+            WHERE id = $1
+            RETURNING votes
+        """, comment_id)
+    finally:
+        await conn.close()
     
     if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
