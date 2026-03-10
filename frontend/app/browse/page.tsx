@@ -6,6 +6,7 @@ import { createClient, type User } from "@supabase/supabase-js";
 import { useRouter, useSearchParams } from "next/navigation";
 import CreatePostDialog from "../components/CreatePost/CreatePostDialog";
 import PostForm, { type PostFormValues } from "../components/CreatePost/PostForm";
+import AudioNotePlayer from "../components/AudioNotePlayer";
 interface Post {
   id: string;
   title: string;
@@ -17,8 +18,9 @@ interface Post {
   votes: number;
   author?: {
     username: string;
+    avatar?: string | null;
   } | null;
-  preview_object_key: string | null;
+  preview_url: string | null;
 }
 
 import { Comments } from "../components/Comments/Comments";
@@ -36,6 +38,7 @@ export default function BrowsePage() {
     description: "",
     preset_id: null,
     uploaded_file: null,
+    postAnonymously: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -216,21 +219,23 @@ export default function BrowsePage() {
             fd.append("access_token", session.session.access_token);
           }
         }
-        const uploadRes = await fetch(`${API_URL}/api/presets/upload`, { method: "POST", body: fd });
+        const uploadRes = await fetch(`${API_URL}/presets/upload`, { method: "POST", body: fd });
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
           preset_id = uploadData.preset_id ?? preset_id;
         }
       }
 
-      const res = await fetch(`${API_URL}/posts`, {
+      const postUrl = (user && !postFormValues.postAnonymously)
+        ? `${API_URL}/posts?user_id=${user.id}`
+        : `${API_URL}/posts`;
+      const res = await fetch(postUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: postFormValues.title,
           description: postFormValues.description || null,
           preset_id,
-          owner_user_id: user?.id ?? null,
           visibility: "public",
         }),
       });
@@ -439,20 +444,33 @@ export default function BrowsePage() {
                   {/* Post Header */}
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700">
-                        <svg
-                          className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+                        {post.author?.avatar ? (
+                          <img
+                            src={post.author.avatar}
+                            alt={post.author.username}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              const el = e.currentTarget;
+                              el.style.display = 'none';
+                              el.nextElementSibling?.removeAttribute('style');
+                            }}
                           />
-                        </svg>
+                        ) : null}
+                        <svg
+                            style={post.author?.avatar ? { display: 'none' } : undefined}
+                            className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                            />
+                          </svg>
                       </div>
                       <div>
                         <div className="font-medium text-black dark:text-white">
@@ -483,15 +501,20 @@ export default function BrowsePage() {
                   )}
 
                   {/* Audio Player - from preset's preview */}
-                  {post.preview_object_key && (
+                  {post.preview_url && (
                     <div className="mb-4">
                       <audio
                         controls
                         className="w-full h-10 rounded-lg"
-                        src={`${STORAGE_URL}${post.preview_object_key}`}
+                        src={post.preview_url}
                       >
                         Your browser does not support the audio element.
                       </audio>
+                      <AudioNotePlayer
+                        audioPath={post.preview_url}
+                        buttonText="Test other notes"
+                        className="mt-2"
+                      />
                     </div>
                   )}
 
