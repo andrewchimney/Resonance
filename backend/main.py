@@ -373,6 +373,29 @@ async def get_presets():
         ]
     }
 
+@app.get("/api/users/by-username/{username}")
+async def get_user_by_username(username: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    row = await conn.fetchrow("""
+        SELECT id, username, profile_picture, created_at
+        FROM public.users
+        WHERE lower(username) = lower($1)
+    """, username)
+    await conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "user": {
+            "id": str(row["id"]),
+            "username": row["username"],
+            "profile_picture": row["profile_picture"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+    }
+
+
 @app.get("/api/user/{id}")
 async def get_user_id(id: str):
     conn = await asyncpg.connect(DATABASE_URL)
@@ -1124,6 +1147,41 @@ async def save_preset(user_id: str, payload: SavedPresetCreate):
     return {
         "id": str(row["id"]),
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
+
+
+@app.get("/api/users/{user_id}/public-presets")
+async def list_public_presets(user_id: str):
+    conn = await asyncpg.connect(DATABASE_URL)
+    rows = await conn.fetch("""
+        SELECT sp.id, sp.owner_user_id, sp.creator_user_id, sp.title,
+               sp.description, sp.visibility, sp.preset_object_key, sp.preview_object_key,
+               sp.source, sp.created_at,
+               u.username as creator_username
+        FROM saved_presets sp
+        LEFT JOIN users u ON sp.creator_user_id = u.id
+        WHERE sp.owner_user_id = $1 AND sp.visibility = 'public'
+        ORDER BY sp.created_at DESC
+    """, user_id)
+    await conn.close()
+
+    return {
+        "presets": [
+            {
+                "id": str(r["id"]),
+                "owner_user_id": str(r["owner_user_id"]),
+                "creator_user_id": str(r["creator_user_id"]) if r["creator_user_id"] else None,
+                "creator_username": r["creator_username"],
+                "description": r["description"],
+                "title": r["title"],
+                "visibility": r["visibility"],
+                "preset_object_key": r["preset_object_key"],
+                "preview_object_key": r["preview_object_key"],
+                "source": r["source"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
     }
 
 
