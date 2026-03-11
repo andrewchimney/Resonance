@@ -183,6 +183,30 @@ export default function BrowsePage() {
     setExpandedPostId((prev) => (prev === postId ? null : postId));
   };
 
+  const handleTogglePresetDetails = async (post: Post) => {
+    if (!post.preset_id) return;
+
+    if (expandedPresetPostId === post.id) {
+      setExpandedPresetPostId(null);
+      return;
+    }
+
+    setExpandedPresetPostId(post.id);
+
+    if (presetDataCache[post.preset_id]) return;
+
+    setPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: "loading" }));
+    try {
+      const res = await fetch(`${API_URL}/presets/${post.preset_id}/data`);
+      if (!res.ok) throw new Error("Failed to fetch preset");
+      const rawPreset = await res.json();
+      const parsed = parseVitalPreset(rawPreset);
+      setPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: parsed }));
+    } catch {
+      setPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: "error" }));
+    }
+  };
+
   const handleSavePreset = async (presetId: string | null, postOwnerUserId: string | null) => {
     if (!presetId) return;
     if (!user) {
@@ -704,6 +728,37 @@ export default function BrowsePage() {
                           ? "Saved"
                           : "Save"}
                     </button>
+
+                    {post.preset_id && (
+                      <button
+                        onClick={() => handleTogglePresetDetails(post)}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer ${
+                          expandedPresetPostId === post.id
+                            ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
+                            : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                        }`}
+                      >
+                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                          />
+                        </svg>
+                        <span className="flex items-center gap-1">
+                          {expandedPresetPostId === post.id ? "Hide Preset" : "View Preset"}
+                          <svg
+                            className={`h-3.5 w-3.5 transition-transform ${expandedPresetPostId === post.id ? "rotate-180" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </span>
+                      </button>
+                    )}
 
                     {/* Delete Button - only visible to post owner */}
                     {user && user.id === post.owner_user_id && (
