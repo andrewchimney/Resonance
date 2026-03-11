@@ -731,7 +731,6 @@ export default function GeneratePage() {
           </div>
         </main>
         <footer >
-          <Footer />
         </footer>
       </div>
   );
