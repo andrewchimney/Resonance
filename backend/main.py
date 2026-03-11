@@ -9,7 +9,8 @@ import json
 import httpx
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
+
 load_dotenv()
 # Legacy Ollama config - now managed by llm/providers.py
 # Use LLM_PROVIDER env var to switch between openai, gemini, ollama
@@ -28,13 +29,17 @@ from rag.retrieve import router as retrieve_router
 from llm import get_llm, get_generation_chain, get_rag_chain
 from llm.providers import check_provider_health, get_provider_config, LLMProvider
 from scripts.modify_preset import apply_patch_dict
+
 try:
     from scripts.render import render_preset_to_wav_b64
+
     _vita_available = True
 except Exception:
     _vita_available = False
+
     def render_preset_to_wav_b64(*_a, **_kw):  # type: ignore[misc]
         return None
+
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -49,6 +54,7 @@ def load_model():
     model.load_ckpt()
     return model
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -56,7 +62,9 @@ async def lifespan(app: FastAPI):
         app.state.clap = load_model()
         print("CLAP model loaded.")
     except Exception as exc:
-        print(f"WARNING: CLAP model failed to load ({exc}). Retrieval will be unavailable.")
+        print(
+            f"WARNING: CLAP model failed to load ({exc}). Retrieval will be unavailable."
+        )
         app.state.clap = None
 
     yield
@@ -68,7 +76,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-ENV = os.getenv("ENV") 
+ENV = os.getenv("ENV")
 
 if ENV == "dev":
     app.add_middleware(
@@ -80,12 +88,13 @@ if ENV == "dev":
     )
 else:
     app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 # Pydantic models for request/response
 class PostCreate(BaseModel):
@@ -94,8 +103,10 @@ class PostCreate(BaseModel):
     preset_id: Optional[str] = None
     visibility: Optional[str] = "public"
 
+
 class ReactionCreate(BaseModel):
     reaction_type: str  # "like" or "dislike"
+
 
 # Pydantic models for LLM endpoints
 class GenerateRequest(BaseModel):
@@ -125,6 +136,7 @@ def health():
 
 
 # ==================== LLM API ====================
+
 
 @app.get("/api/llm/health")
 async def llm_health(provider: Optional[str] = Query(None)):
@@ -165,7 +177,7 @@ def list_providers():
                 "env_var": "GOOGLE_API_KEY",
             },
             {
-                "id": "ollama", 
+                "id": "ollama",
                 "name": "Ollama (Local)",
                 "models": ["qwen2.5:7b-instruct", "llama3", "mistral", "codellama"],
                 "requires_api_key": False,
@@ -181,26 +193,21 @@ async def generate_preset(req: GenerateRequest):
     """Generate preset suggestions from a text description"""
     try:
         chain = get_generation_chain(provider=req.provider)
-        
+
         if req.stream:
             # Streaming response
             async def generate_stream():
-                async for chunk in chain.astream({
-                    "description": req.description,
-                    "context": req.context or ""
-                }):
+                async for chunk in chain.astream(
+                    {"description": req.description, "context": req.context or ""}
+                ):
                     yield chunk
-            
-            return StreamingResponse(
-                generate_stream(),
-                media_type="text/plain"
-            )
+
+            return StreamingResponse(generate_stream(), media_type="text/plain")
         else:
             # Non-streaming response
-            result = await chain.ainvoke({
-                "description": req.description,
-                "context": req.context or ""
-            })
+            result = await chain.ainvoke(
+                {"description": req.description, "context": req.context or ""}
+            )
             # Strip markdown code fences if the LLM wraps its output
             cleaned = result.strip()
             if cleaned.startswith("```"):
@@ -208,7 +215,7 @@ async def generate_preset(req: GenerateRequest):
                 if cleaned.rstrip().endswith("```"):
                     cleaned = cleaned.rstrip()[:-3].rstrip()
             return {"result": cleaned}
-            
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -248,10 +255,12 @@ async def modify_preset_endpoint(req: ModifyPresetRequest):
         # --- 2. Run LLM chain ---
         chain = get_generation_chain(provider=req.provider)
         preset_context = json.dumps(base_preset.get("settings", {}), indent=2)
-        result = await chain.ainvoke({
-            "description": req.description,
-            "context": preset_context,
-        })
+        result = await chain.ainvoke(
+            {
+                "description": req.description,
+                "context": preset_context,
+            }
+        )
 
         # --- 3. Parse JSON output ---
         # Strip markdown code fences if present (e.g. ```json ... ```)
@@ -277,6 +286,7 @@ async def modify_preset_endpoint(req: ModifyPresetRequest):
 
         # --- 5. Render audio preview ---
         import asyncio
+
         loop = asyncio.get_event_loop()
         audio_b64: str | None = await loop.run_in_executor(
             None, render_preset_to_wav_b64, modified_preset
@@ -303,25 +313,21 @@ async def chat(req: ChatRequest):
     """Chat with the LLM assistant"""
     try:
         from llm.chains import get_chat_chain
-        
+
         chain = get_chat_chain(provider=req.provider)
-        
+
         # Format history for the chain
         messages = []
         if req.history:
             for msg in req.history:
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", "")
-                })
-        
-        result = await chain.ainvoke({
-            "messages": messages,
-            "input": req.message
-        })
-        
+                messages.append(
+                    {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+                )
+
+        result = await chain.ainvoke({"messages": messages, "input": req.message})
+
         return {"response": result}
-        
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -336,11 +342,11 @@ class RetrieveRequest(BaseModel):
 app.include_router(retrieve_router)
 
 
-
 @app.get("/api/presets")
 async def get_presets():
     conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch("""
+    rows = await conn.fetch(
+        """
         SELECT
             id,
             owner_user_id,
@@ -353,14 +359,17 @@ async def get_presets():
             created_at
         FROM public.presets
         ORDER BY created_at DESC
-    """)
+    """
+    )
     await conn.close()
 
     return {
         "presets": [
             {
                 "id": str(r["id"]),
-                "owner_user_id": str(r["owner_user_id"]) if r["owner_user_id"] else None,
+                "owner_user_id": (
+                    str(r["owner_user_id"]) if r["owner_user_id"] else None
+                ),
                 "title": r["title"],
                 "description": r["description"],
                 "visibility": r["visibility"],
@@ -388,7 +397,9 @@ async def upload_preset(
     try:
         preset_dict = json.loads(vital_bytes.decode("utf-8"))
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid .vital file (not valid JSON)")
+        raise HTTPException(
+            status_code=400, detail="Invalid .vital file (not valid JSON)"
+        )
 
     preset_id = str(uuid.uuid4())
     preset_key = f"{preset_id}.vital"
@@ -415,14 +426,52 @@ async def upload_preset(
             file_options={"content-type": "audio/wav", "upsert": "true"},
         )
 
+    # Generate CLAP embedding from rendered WAV
+    embedding = None
+    if wav_bytes:
+        import tempfile
+        import numpy as np
+
+        def embed_wav_bytes(wav_bytes):
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as f:
+                f.write(wav_bytes)
+                f.flush()
+                emb = app.state.clap.get_audio_embedding_from_filelist(
+                    x=[f.name], use_tensor=False
+                )
+                emb = np.asarray(emb, dtype=np.float32)[0]
+                emb = emb / (np.linalg.norm(emb) + 1e-9)
+                return emb.tolist()
+
+        embedding = await loop.run_in_executor(None, embed_wav_bytes, wav_bytes)
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
     # Insert preset row into DB
     conn = await asyncpg.connect(DATABASE_URL)
     try:
-        await conn.execute("""
-            INSERT INTO presets (id, supabase_key, title, visibility, preset_object_key, preview_object_key, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-        """, preset_id, preset_key, title, "public", preset_key,
-            preview_key if wav_bytes else None, "user_upload")
+        await conn.execute(
+            """
+            INSERT INTO presets (
+                id,
+                supabase_key,
+                title,
+                visibility,
+                preset_object_key,
+                preview_object_key,
+                source,
+                embedding
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            """,
+            preset_id,
+            preset_key,
+            title,
+            "public",
+            preset_key,
+            preview_key if wav_bytes else None,
+            "user_upload",
+            embedding_str,
+        )
     finally:
         await conn.close()
 
@@ -432,11 +481,14 @@ async def upload_preset(
 @app.get("/api/users/by-username/{username}")
 async def get_user_by_username(username: str):
     conn = await asyncpg.connect(DATABASE_URL)
-    row = await conn.fetchrow("""
+    row = await conn.fetchrow(
+        """
         SELECT id, username, profile_picture, created_at
         FROM public.users
         WHERE lower(username) = lower($1)
-    """, username)
+    """,
+        username,
+    )
     await conn.close()
 
     if not row:
@@ -455,7 +507,8 @@ async def get_user_by_username(username: str):
 @app.get("/api/user/{id}")
 async def get_user_id(id: str):
     conn = await asyncpg.connect(DATABASE_URL)
-    row = await conn.fetchrow("""
+    row = await conn.fetchrow(
+        """
         SELECT
             id,
             username,
@@ -464,7 +517,9 @@ async def get_user_id(id: str):
             generation_prefrences
         FROM public.users
         WHERE id = $1
-    """, id)
+    """,
+        id,
+    )
 
     await conn.close()
 
@@ -480,8 +535,6 @@ async def get_user_id(id: str):
             "generation_prefrences": row["generation_prefrences"],
         }
     }
-
-
 
 
 # API Endpoints:
@@ -504,84 +557,186 @@ async def get_user_id(id: str):
 # 	•	POST /api/generate
 
 
+def format_post_row(r, include_score: bool = False):
+    post = {
+        "id": str(r["id"]),
+        "owner_user_id": str(r["owner_user_id"]) if r["owner_user_id"] else None,
+        "preset_id": str(r["preset_id"]) if r["preset_id"] else None,
+        "title": r["title"],
+        "description": r["description"],
+        "visibility": r["visibility"],
+        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        "votes": r["votes"] or 0,
+        "author": (
+            {
+                "username": r["author_username"],
+                "avatar": r["author_avatar"],
+            }
+            if r["author_username"]
+            else None
+        ),
+        "preview_url": get_preview_url(r["preview_object_key"]),
+    }
+
+    if include_score and "score" in r:
+        post["score"] = float(r["score"]) if r["score"] is not None else None
+
+    return post
 
 
 @app.get("/api/feed")
-async def get_feed(
+async def get_posts(
     type: str = "new",
     user_uuid: Optional[str] = None,
-    search: Optional[str] = Query(None)
+    search: Optional[str] = Query(None),
 ):
+    """Get posts by feed type: new, trending, or recommended"""
     conn = await asyncpg.connect(DATABASE_URL)
 
     try:
         if type == "new":
             if search:
-                rows = await conn.fetch("""
-                    SELECT *
-                    FROM posts
-                    WHERE visibility = 'public'
-                      AND (title ILIKE $1 OR description ILIKE $1)
-                    ORDER BY created_at DESC
-                """, f"%{search}%")
+                rows = await conn.fetch(
+                    """
+                    SELECT 
+                        p.id,
+                        p.owner_user_id,
+                        p.preset_id,
+                        p.title,
+                        p.description,
+                        p.visibility,
+                        p.created_at,
+                        p.votes,
+                        u.username as author_username,
+                        u.profile_picture as author_avatar,
+                        pr.preview_object_key,
+                        pr.preset_object_key
+                    FROM posts p
+                    LEFT JOIN users u ON p.owner_user_id = u.id
+                    LEFT JOIN presets pr ON p.preset_id = pr.id
+                    WHERE p.visibility = 'public'
+                      AND (p.title ILIKE $1 OR p.description ILIKE $1)
+                    ORDER BY p.created_at DESC
+                """,
+                    f"%{search}%",
+                )
             else:
-                rows = await conn.fetch("""
-                    SELECT *
-                    FROM posts
-                    WHERE visibility = 'public'
-                    ORDER BY created_at DESC
-                """)
+                rows = await conn.fetch(
+                    """
+                    SELECT 
+                        p.id,
+                        p.owner_user_id,
+                        p.preset_id,
+                        p.title,
+                        p.description,
+                        p.visibility,
+                        p.created_at,
+                        p.votes,
+                        u.username as author_username,
+                        u.profile_picture as author_avatar,
+                        pr.preview_object_key,
+                        pr.preset_object_key
+                    FROM posts p
+                    LEFT JOIN users u ON p.owner_user_id = u.id
+                    LEFT JOIN presets pr ON p.preset_id = pr.id
+                    WHERE p.visibility = 'public'
+                    ORDER BY p.created_at DESC
+                """
+                )
+
+            return {"feed": type, "posts": [format_post_row(r) for r in rows]}
 
         elif type == "trending":
             if search:
-                rows = await conn.fetch("""
-                    SELECT *,
-                    votes / POW(EXTRACT(EPOCH FROM (NOW() - created_at))/3600 + 2, 1.5) AS score
-                    FROM posts
-                    WHERE visibility = 'public'
-                      AND (title ILIKE $1 OR description ILIKE $1)
+                rows = await conn.fetch(
+                    """
+                    SELECT 
+                        p.id,
+                        p.owner_user_id,
+                        p.preset_id,
+                        p.title,
+                        p.description,
+                        p.visibility,
+                        p.created_at,
+                        p.votes,
+                        u.username as author_username,
+                        u.profile_picture as author_avatar,
+                        pr.preview_object_key,
+                        pr.preset_object_key,
+                        p.votes / POW(EXTRACT(EPOCH FROM (NOW() - p.created_at))/3600 + 2, 1.5) AS score
+                    FROM posts p
+                    LEFT JOIN users u ON p.owner_user_id = u.id
+                    LEFT JOIN presets pr ON p.preset_id = pr.id
+                    WHERE p.visibility = 'public'
+                      AND (p.title ILIKE $1 OR p.description ILIKE $1)
                     ORDER BY score DESC
-                """, f"%{search}%")
+                """,
+                    f"%{search}%",
+                )
             else:
-                rows = await conn.fetch("""
-                    SELECT *,
-                    votes / POW(EXTRACT(EPOCH FROM (NOW() - created_at))/3600 + 2, 1.5) AS score
-                    FROM posts
-                    WHERE visibility = 'public'
+                rows = await conn.fetch(
+                    """
+                    SELECT 
+                        p.id,
+                        p.owner_user_id,
+                        p.preset_id,
+                        p.title,
+                        p.description,
+                        p.visibility,
+                        p.created_at,
+                        p.votes,
+                        u.username as author_username,
+                        u.profile_picture as author_avatar,
+                        pr.preview_object_key,
+                        pr.preset_object_key,
+                        p.votes / POW(EXTRACT(EPOCH FROM (NOW() - p.created_at))/3600 + 2, 1.5) AS score
+                    FROM posts p
+                    LEFT JOIN users u ON p.owner_user_id = u.id
+                    LEFT JOIN presets pr ON p.preset_id = pr.id
+                    WHERE p.visibility = 'public'
                     ORDER BY score DESC
-                """)
+                """
+                )
+
+            return {
+                "feed": type,
+                "posts": [format_post_row(r, include_score=True) for r in rows],
+            }
 
         elif type == "recommended":
             if not user_uuid:
                 return {"error": "user_uuid is required for recommended feed"}
 
             saved = (
-                supabase
-                .table("saved_presets")
-                .select("id, owner_user_id, preset_uuid")
+                supabase.table("saved_presets")
+                .select("preset_uuid")
                 .eq("owner_user_id", str(user_uuid))
                 .execute()
             )
 
-            preset_ids = [row["preset_uuid"] for row in (saved.data or []) if row.get("preset_uuid")]
+            preset_ids = [
+                row["preset_uuid"]
+                for row in (saved.data or [])
+                if row.get("preset_uuid")
+            ]
+
             if not preset_ids:
                 return {
                     "feed": type,
                     "user_uuid": user_uuid,
                     "posts": [],
-                    "message": "no saved presets"
+                    "message": "no saved presets",
                 }
 
             pres = (
-                supabase
-                .table("presets")
+                supabase.table("presets")
                 .select("id, embedding")
                 .in_("id", preset_ids)
                 .execute()
             )
 
             vectors = []
-            for r in (pres.data or []):
+            for r in pres.data or []:
                 e = r.get("embedding")
                 if e is None:
                     continue
@@ -595,14 +750,15 @@ async def get_feed(
                 else:
                     e = np.asarray(e, dtype=np.float32)
 
-                vectors.append(e)
+                if e.size > 0:
+                    vectors.append(e)
 
             if not vectors:
                 return {
                     "feed": type,
                     "user_uuid": user_uuid,
                     "posts": [],
-                    "message": "no embeddings found for saved presets"
+                    "message": "no embeddings found for saved presets",
                 }
 
             mat = np.vstack(vectors)
@@ -611,44 +767,88 @@ async def get_feed(
             avg_list = avg.tolist()
 
             posts_res = supabase.rpc(
-                "match_posts",
-                {"query_embedding": avg_list, "match_count": 50}
+                "match_posts", {"query_embedding": avg_list, "match_count": 50}
             ).execute()
 
             results = posts_res.data or []
 
-            if search:
-                s = search.lower()
-                results = [
-                    p for p in results
-                    if s in (p.get("title") or "").lower()
-                    or s in (p.get("description") or "").lower()
-                ]
+            # Expecting match_posts to return at least post ids
+            post_ids = [r["id"] for r in results if r.get("id")]
 
-            return {
-                "feed": type,
-                "user_uuid": user_uuid,
-                "posts": results[:10]
-            }
+            if not post_ids:
+                return {"feed": type, "user_uuid": user_uuid, "posts": []}
+
+            rows = await conn.fetch(
+                """
+                SELECT 
+                    p.id,
+                    p.owner_user_id,
+                    p.preset_id,
+                    p.title,
+                    p.description,
+                    p.visibility,
+                    p.created_at,
+                    p.votes,
+                    u.username as author_username,
+                    u.profile_picture as author_avatar,
+                    pr.preview_object_key,
+                    pr.preset_object_key
+                FROM posts p
+                LEFT JOIN users u ON p.owner_user_id = u.id
+                LEFT JOIN presets pr ON p.preset_id = pr.id
+                WHERE p.id = ANY($1::uuid[])
+                  AND p.visibility = 'public'
+            """,
+                post_ids,
+            )
+
+            row_map = {str(r["id"]): r for r in rows}
+
+            ordered_posts = []
+            s = search.lower() if search else None
+
+            for result in results:
+                post_id = str(result["id"])
+                row = row_map.get(post_id)
+                if not row:
+                    continue
+
+                if s:
+                    title = (row["title"] or "").lower()
+                    description = (row["description"] or "").lower()
+                    if s not in title and s not in description:
+                        continue
+
+                post = format_post_row(row)
+                if result.get("similarity") is not None:
+                    post["similarity"] = result["similarity"]
+                if result.get("score") is not None:
+                    post["score"] = result["score"]
+
+                ordered_posts.append(post)
+
+            return {"feed": type, "user_uuid": user_uuid, "posts": ordered_posts[:10]}
 
         else:
-            return {"error": "invalid feed type"}
-
-        return {"feed": type, "posts": [dict(r) for r in rows]}
+            return {"error": "invalid post type"}
 
     finally:
         await conn.close()
+
+
 # ==================== POSTS API ====================
+
 
 @app.get("/api/posts")
 async def get_posts(search: Optional[str] = Query(None)):
     """Get all posts with author info"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
+
     # Base query will always filter by public visibility
     if search:
-        # Search in title or description 
-        rows = await conn.fetch("""
+        # Search in title or description
+        rows = await conn.fetch(
+            """
         SELECT 
             p.id,
             p.owner_user_id,
@@ -667,10 +867,13 @@ async def get_posts(search: Optional[str] = Query(None)):
         LEFT JOIN presets pr ON p.preset_id = pr.id
         WHERE p.visibility = 'public'
             AND (p.title ILIKE $1 OR p.description ILIKE $1)
-        ORDER BY p.created_at DESC    """, f"%{search}%")
+        ORDER BY p.created_at DESC    """,
+            f"%{search}%",
+        )
     else:
         # No search: return all public posts
-        rows = await conn.fetch("""
+        rows = await conn.fetch(
+            """
         SELECT 
             p.id,
             p.owner_user_id,
@@ -689,25 +892,32 @@ async def get_posts(search: Optional[str] = Query(None)):
         LEFT JOIN presets pr ON p.preset_id = pr.id
         WHERE p.visibility = 'public'
         ORDER BY p.created_at DESC
-    """)
-        
+    """
+        )
+
     await conn.close()
-    
+
     return {
         "posts": [
             {
                 "id": str(r["id"]),
-                "owner_user_id": str(r["owner_user_id"]) if r["owner_user_id"] else None,
+                "owner_user_id": (
+                    str(r["owner_user_id"]) if r["owner_user_id"] else None
+                ),
                 "preset_id": str(r["preset_id"]) if r["preset_id"] else None,
                 "title": r["title"],
                 "description": r["description"],
                 "visibility": r["visibility"],
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 "votes": r["votes"] or 0,
-                "author": {
-                    "username": r["author_username"],
-                    "avatar": r["author_avatar"],
-                } if r["author_username"] else None,
+                "author": (
+                    {
+                        "username": r["author_username"],
+                        "avatar": r["author_avatar"],
+                    }
+                    if r["author_username"]
+                    else None
+                ),
                 "preview_url": get_preview_url(r["preview_object_key"]),
             }
             for r in rows
@@ -719,8 +929,9 @@ async def get_posts(search: Optional[str] = Query(None)):
 async def get_post(post_id: str):
     """Get a single post by ID"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
+
+    row = await conn.fetchrow(
+        """
         SELECT 
             p.id,
             p.owner_user_id,
@@ -736,13 +947,15 @@ async def get_post(post_id: str):
         LEFT JOIN users u ON p.owner_user_id = u.id
         LEFT JOIN presets pr ON p.preset_id = pr.id
         WHERE p.id = $1
-    """, post_id)
-    
+    """,
+        post_id,
+    )
+
     await conn.close()
-    
+
     if not row:
         raise HTTPException(status_code=404, detail="Post not found")
-    
+
     return {
         "id": str(row["id"]),
         "owner_user_id": str(row["owner_user_id"]) if row["owner_user_id"] else None,
@@ -752,9 +965,9 @@ async def get_post(post_id: str):
         "visibility": row["visibility"],
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
         "votes": row["votes"] or 0,
-        "author": {
-            "username": row["author_username"]
-        } if row["author_username"] else None,
+        "author": (
+            {"username": row["author_username"]} if row["author_username"] else None
+        ),
         "preview_object_key": row["preview_object_key"],
     }
 
@@ -763,18 +976,27 @@ async def get_post(post_id: str):
 async def create_post(post: PostCreate, user_id: Optional[str] = Query(None)):
     """Create a new post"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
+
     # Allow posts from authenticated users or anonymous users
     owner_id = user_id if user_id else None
 
-    row = await conn.fetchrow("""
+    # print("preset id: ", post.preset_id)
+
+    row = await conn.fetchrow(
+        """
         INSERT INTO posts (owner_user_id, title, description, preset_id, visibility, votes)
         VALUES ($1, $2, $3, $4, $5, 0)
         RETURNING id, created_at
-    """, owner_id, post.title, post.description, post.preset_id, post.visibility)
-    
+    """,
+        owner_id,
+        post.title,
+        post.description,
+        post.preset_id,
+        post.visibility,
+    )
+
     await conn.close()
-    
+
     return {
         "id": str(row["id"]),
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
@@ -786,53 +1008,66 @@ async def delete_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Delete a post"""
     # Check if user is authenticated
     if not user_id:
-        raise HTTPException(status_code=401, detail="User must be authenticated to delete a post")
-    
+        raise HTTPException(
+            status_code=401, detail="User must be authenticated to delete a post"
+        )
+
     conn = await asyncpg.connect(DATABASE_URL)
-    
+
     # Verify the user owns this post
-    row = await conn.fetchrow("""
+    row = await conn.fetchrow(
+        """
         SELECT owner_user_id FROM posts WHERE id = $1
-    """, post_id)
-    
+    """,
+        post_id,
+    )
+
     if not row:
         await conn.close()
         raise HTTPException(status_code=404, detail="Post not found")
-    
+
     if str(row["owner_user_id"]) != user_id:
         await conn.close()
-        raise HTTPException(status_code=403, detail="You can only delete your own posts")
-    
+        raise HTTPException(
+            status_code=403, detail="You can only delete your own posts"
+        )
+
     # Delete the post
-    await conn.execute("""
+    await conn.execute(
+        """
         DELETE FROM posts WHERE id = $1
-    """, post_id)
-    
+    """,
+        post_id,
+    )
+
     await conn.close()
-    
+
     return {"ok": True}
 
 
 # ==================== VOTES API ====================
 
+
 @app.post("/api/posts/{post_id}/upvote")
 async def upvote_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Upvote a post (increment votes)"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
+
+    row = await conn.fetchrow(
+        """
         UPDATE posts SET votes = COALESCE(votes, 0) + 1
         WHERE id = $1
         RETURNING votes
-    """, post_id)
-    
+    """,
+        post_id,
+    )
+
     await conn.close()
-    
+
     if not row:
 
-
         raise HTTPException(status_code=404, detail="Post not found")
-    
+
     return {"votes": row["votes"]}
 
 
@@ -840,18 +1075,21 @@ async def upvote_post(post_id: str, user_id: Optional[str] = Query(None)):
 async def downvote_post(post_id: str, user_id: Optional[str] = Query(None)):
     """Downvote a post (decrement votes)"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
+
+    row = await conn.fetchrow(
+        """
         UPDATE posts SET votes = COALESCE(votes, 0) - 1
         WHERE id = $1
         RETURNING votes
-    """, post_id)
-    
+    """,
+        post_id,
+    )
+
     await conn.close()
-    
+
     if not row:
         raise HTTPException(status_code=404, detail="Post not found")
-    
+
     return {"votes": row["votes"]}
 
 
@@ -860,16 +1098,18 @@ async def downvote_post(post_id: str, user_id: Optional[str] = Query(None)):
 @app.get("/api/posts/{post_id}/comments")
 async def get_post_comments(
     post_id: str,
-    sort: Literal["recent", "relevant", "interacted"] = Query("recent"), # The allowed sort options are recent, relevant, interacted
+    sort: Literal["recent", "relevant", "interacted"] = Query(
+        "recent"
+    ),  # The allowed sort options are recent, relevant, interacted
 ):
     """
     Get all comments for a post with optional sorting
-    
+
     Sorting options:
     - recent: newest comments first
     - relevant: vote score weighted by recency (votes / hours since creation)
     - interacted: highest vote score first (ignore recency)
-    """ 
+    """
     # Decide order by cause based on sort option
     order_by_map = {
         "recent": "c.created_at DESC",
@@ -880,11 +1120,12 @@ async def get_post_comments(
         "interacted": "ABS(COALESCE(c.votes, 0)) DESC, c.created_at DESC",
     }
     order_by = order_by_map[sort]
-    
+
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         # This will join the user table so the frontend can render the author username
-        rows = await conn.fetch(f"""
+        rows = await conn.fetch(
+            f"""
             SELECT 
                 c.id,
                 c.post_id,
@@ -899,24 +1140,28 @@ async def get_post_comments(
             LEFT JOIN users u ON c.owner_user_id = u.id
             WHERE c.post_id = $1
             ORDER BY {order_by}
-        """, post_id)
+        """,
+            post_id,
+        )
     finally:
         await conn.close()
-    
+
     return {
         "comments": [
             {
                 "id": str(r["id"]),
                 "post_id": str(r["post_id"]) if r["post_id"] else None,
-                "owner_user_id": str(r["owner_user_id"]) if r["owner_user_id"] else None,
+                "owner_user_id": (
+                    str(r["owner_user_id"]) if r["owner_user_id"] else None
+                ),
                 "body": r["body"],
                 "visibility": r["visibility"],
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 "votes": r["votes"] or 0,
                 "preset_id": str(r["preset_id"]) if r["preset_id"] else None,
-                "author": {
-                    "username": r["author_username"]
-                } if r["author_username"] else None,
+                "author": (
+                    {"username": r["author_username"]} if r["author_username"] else None
+                ),
             }
             for r in rows
         ]
@@ -924,32 +1169,45 @@ async def get_post_comments(
 
 
 class CommentCreate(BaseModel):
-    body: str # Comment text entered by the user
-    preset_id: Optional[str] = None # An optional preset attachment if the comment is also sharing a preset
-    visibility: Optional[str] = "public" # Visibility of the comment (public or private)
+    body: str  # Comment text entered by the user
+    preset_id: Optional[str] = (
+        None  # An optional preset attachment if the comment is also sharing a preset
+    )
+    visibility: Optional[str] = (
+        "public"  # Visibility of the comment (public or private)
+    )
 
 
 @app.post("/api/posts/{post_id}/comments")
-async def create_comment(post_id: str, comment: CommentCreate, user_id: Optional[str] = Query(None)):
+async def create_comment(
+    post_id: str, comment: CommentCreate, user_id: Optional[str] = Query(None)
+):
     """Create a comment on a post. This will require an authenticated user_id"""
     # This will trim the whitespace from the comment body and ensure it's not empty before inserting into the database
     body = (comment.body or "").strip()
     if not body:
         raise HTTPException(status_code=400, detail="Comment body cannot be empty")
-    
+
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     conn = await asyncpg.connect(DATABASE_URL)
     try:
-        row = await conn.fetchrow("""
+        row = await conn.fetchrow(
+            """
             INSERT INTO comments (post_id, owner_user_id, body, preset_id, visibility, votes)
             VALUES ($1, $2, $3, $4, $5, 0)
             RETURNING id, created_at
-        """, post_id, user_id, body, comment.preset_id, comment.visibility)
+        """,
+            post_id,
+            user_id,
+            body,
+            comment.preset_id,
+            comment.visibility,
+        )
     finally:
         await conn.close()
-    
+
     return {
         "id": str(row["id"]),
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
@@ -961,18 +1219,21 @@ async def upvote_comment(comment_id: str):
     """Upvote a comment. This will increment a comment vote score by +1."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
-        row = await conn.fetchrow("""
+        row = await conn.fetchrow(
+            """
             UPDATE comments 
             SET votes = COALESCE(votes, 0) + 1
             WHERE id = $1
             RETURNING votes
-        """, comment_id)
+        """,
+            comment_id,
+        )
     finally:
         await conn.close()
-    
+
     if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
-    
+
     return {"votes": row["votes"]}
 
 
@@ -981,50 +1242,65 @@ async def downvote_comment(comment_id: str):
     """Downvote a comment. This will decrement a comment vote score by -1."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
-        row = await conn.fetchrow("""
+        row = await conn.fetchrow(
+            """
             UPDATE comments 
             SET votes = COALESCE(votes, 0) - 1
             WHERE id = $1
             RETURNING votes
-        """, comment_id)
+        """,
+            comment_id,
+        )
     finally:
         await conn.close()
-    
+
     if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
-    
+
     return {"votes": row["votes"]}
+
 
 @app.delete("/api/comments/{comment_id}")
 async def delete_comment(comment_id: str, user_id: Optional[str] = Query(None)):
     """Delete a comment"""
     if not user_id:
-        raise HTTPException(status_code=401, detail="User must be authenticated to delete a comment")
-    
+        raise HTTPException(
+            status_code=401, detail="User must be authenticated to delete a comment"
+        )
+
     conn = await asyncpg.connect(DATABASE_URL)
-    
-    row = await conn.fetchrow("""
+
+    row = await conn.fetchrow(
+        """
         SELECT owner_user_id FROM comments WHERE id = $1
-    """, comment_id)
-    
+    """,
+        comment_id,
+    )
+
     if not row:
         await conn.close()
         raise HTTPException(status_code=404, detail="Comment not found")
-    
+
     if str(row["owner_user_id"]) != user_id:
         await conn.close()
-        raise HTTPException(status_code=403, detail="You can only delete your own comments")
-    
-    await conn.execute("""
+        raise HTTPException(
+            status_code=403, detail="You can only delete your own comments"
+        )
+
+    await conn.execute(
+        """
         DELETE FROM comments WHERE id = $1
-    """, comment_id)
-    
+    """,
+        comment_id,
+    )
+
     await conn.close()
-    
+
     return {"ok": True}
 
+
 # ==================== CONVO API ====================
-#Conversation holds presets generated during a chat convo
+# Conversation holds presets generated during a chat convo
 class ConversationCreate(BaseModel):
     title: Optional[str] = None
 
@@ -1039,7 +1315,9 @@ class ConversationPresetCreate(BaseModel):
 
 
 @app.post("/api/conversations")
-async def create_conversation(conv: ConversationCreate, user_id: Optional[str] = Query(None)):
+async def create_conversation(
+    conv: ConversationCreate, user_id: Optional[str] = Query(None)
+):
     conn = await asyncpg.connect(DATABASE_URL)
     row = await conn.fetchrow(
         """
@@ -1059,15 +1337,19 @@ async def create_conversation(conv: ConversationCreate, user_id: Optional[str] =
 
 
 @app.post("/api/conversations/{conversation_id}/presets")
-async def add_conversation_preset(conversation_id: str, payload: ConversationPresetCreate, user_id: Optional[str] = Query(None)):
+async def add_conversation_preset(
+    conversation_id: str,
+    payload: ConversationPresetCreate,
+    user_id: Optional[str] = Query(None),
+):
     conn = await asyncpg.connect(DATABASE_URL)
-    
+
     # Check current preset count for this conversation
     count_result = await conn.fetchval(
         "SELECT COUNT(*) FROM conversation_presets WHERE conversation_id = $1",
         conversation_id,
     )
-    
+
     # Eviction policy, oldest gone, fifo
     if count_result >= 10:
         await conn.execute(
@@ -1082,7 +1364,7 @@ async def add_conversation_preset(conversation_id: str, payload: ConversationPre
             """,
             conversation_id,
         )
-    
+
     # Insert new preset
     row = await conn.fetchrow(
         """
@@ -1125,7 +1407,9 @@ async def list_conversation_presets(conversation_id: str):
         "presets": [
             {
                 "id": str(r["id"]),
-                "owner_user_id": str(r["owner_user_id"]) if r["owner_user_id"] else None,
+                "owner_user_id": (
+                    str(r["owner_user_id"]) if r["owner_user_id"] else None
+                ),
                 "title": r["title"],
                 "visibility": r["visibility"],
                 "preset_object_key": r["preset_object_key"],
@@ -1136,6 +1420,7 @@ async def list_conversation_presets(conversation_id: str):
             for r in rows
         ]
     }
+
 
 @app.delete("/api/conversations/{conversation_id}/presets/{preset_id}")
 async def delete_conversation_preset(conversation_id: str, preset_id: str):
@@ -1152,8 +1437,9 @@ async def delete_conversation_preset(conversation_id: str, preset_id: str):
     finally:
         await conn.close()
 
+
 ##To do, go into schema and change the cascade options so when a convo is deleted, the entire
-#presets associated with it are also deleted.
+# presets associated with it are also deleted.
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
     conn = await asyncpg.connect(DATABASE_URL)
@@ -1170,6 +1456,7 @@ async def delete_conversation(conversation_id: str):
 
 
 # ==================== SAVED PRESETS API ====================
+
 
 class SavedPresetCreate(BaseModel):
     title: str
@@ -1212,7 +1499,8 @@ async def save_preset(user_id: str, payload: SavedPresetCreate):
 @app.get("/api/users/{user_id}/public-presets")
 async def list_public_presets(user_id: str):
     conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.fetch("""
+    rows = await conn.fetch(
+        """
         SELECT sp.id, sp.owner_user_id, sp.creator_user_id, sp.title,
                sp.description, sp.visibility, sp.preset_object_key, sp.preview_object_key,
                sp.source, sp.created_at,
@@ -1221,7 +1509,9 @@ async def list_public_presets(user_id: str):
         LEFT JOIN users u ON sp.creator_user_id = u.id
         WHERE sp.owner_user_id = $1 AND sp.visibility = 'public'
         ORDER BY sp.created_at DESC
-    """, user_id)
+    """,
+        user_id,
+    )
     await conn.close()
 
     return {
@@ -1229,7 +1519,9 @@ async def list_public_presets(user_id: str):
             {
                 "id": str(r["id"]),
                 "owner_user_id": str(r["owner_user_id"]),
-                "creator_user_id": str(r["creator_user_id"]) if r["creator_user_id"] else None,
+                "creator_user_id": (
+                    str(r["creator_user_id"]) if r["creator_user_id"] else None
+                ),
                 "creator_username": r["creator_username"],
                 "description": r["description"],
                 "title": r["title"],
@@ -1263,7 +1555,9 @@ async def list_saved_presets(user_id: str):
             {
                 "id": str(r["id"]),
                 "owner_user_id": str(r["owner_user_id"]),
-                "creator_user_id": str(r["creator_user_id"]) if r["creator_user_id"] else None,
+                "creator_user_id": (
+                    str(r["creator_user_id"]) if r["creator_user_id"] else None
+                ),
                 "title": r["title"],
                 "description": r["description"],
                 "visibility": r["visibility"],
@@ -1297,7 +1591,9 @@ async def get_saved_preset(user_id: str, preset_id: str):
     return {
         "id": str(row["id"]),
         "owner_user_id": str(row["owner_user_id"]),
-        "creator_user_id": str(row["creator_user_id"]) if row["creator_user_id"] else None,
+        "creator_user_id": (
+            str(row["creator_user_id"]) if row["creator_user_id"] else None
+        ),
         "title": row["title"],
         "description": row["description"],
         "visibility": row["visibility"],
@@ -1329,33 +1625,37 @@ async def delete_saved_preset(user_id: str, preset_id: str):
 
 # ==================== PRESET DATA API ====================
 
+
 @app.get("/api/presets/{preset_id}/data")
 async def get_preset_data(preset_id: str):
     """Fetch the .vital preset JSON data from Supabase storage"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
+
     # Get the preset_object_key from the database
-    row = await conn.fetchrow("""
+    row = await conn.fetchrow(
+        """
         SELECT preset_object_key FROM presets WHERE id = $1
-    """, preset_id)
-    
+    """,
+        preset_id,
+    )
+
     await conn.close()
-    
+
     if not row or not row["preset_object_key"]:
         raise HTTPException(status_code=404, detail="Preset not found")
-    
+
     preset_object_key = row["preset_object_key"]
     preset_url = f"{PRESETS_BUCKET}/{preset_object_key}"
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.get(preset_url)
-        
+
         if response.status_code != 200:
             raise HTTPException(
-                status_code=response.status_code, 
-                detail=f"Failed to fetch preset from storage: {response.status_code}"
+                status_code=response.status_code,
+                detail=f"Failed to fetch preset from storage: {response.status_code}",
             )
-        
+
         return response.json()
 
 
@@ -1363,29 +1663,33 @@ async def get_preset_data(preset_id: str):
 async def get_saved_preset_data(user_id: str, preset_id: str):
     """Fetch the .vital preset JSON data for a saved preset from Supabase storage"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
+
     # Get the preset_object_key from the database
-    row = await conn.fetchrow("""
+    row = await conn.fetchrow(
+        """
         SELECT preset_object_key FROM saved_presets WHERE id = $1 AND owner_user_id = $2
-    """, preset_id, user_id)
-    
+    """,
+        preset_id,
+        user_id,
+    )
+
     await conn.close()
-    
+
     if not row or not row["preset_object_key"]:
         raise HTTPException(status_code=404, detail="Saved preset not found")
-    
+
     preset_object_key = row["preset_object_key"]
     preset_url = f"{PRESETS_BUCKET}/{preset_object_key}"
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.get(preset_url)
-        
+
         if response.status_code != 200:
             raise HTTPException(
-                status_code=response.status_code, 
-                detail=f"Failed to fetch preset from storage: {response.status_code}"
+                status_code=response.status_code,
+                detail=f"Failed to fetch preset from storage: {response.status_code}",
             )
-        
+
         return response.json()
 
 
@@ -1393,29 +1697,33 @@ async def get_saved_preset_data(user_id: str, preset_id: str):
 async def get_conversation_preset_data(conversation_id: str, preset_id: str):
     """Fetch the .vital preset JSON data for a conversation preset from Supabase storage"""
     conn = await asyncpg.connect(DATABASE_URL)
-    
+
     # Get the preset_object_key from the database
-    row = await conn.fetchrow("""
+    row = await conn.fetchrow(
+        """
         SELECT preset_object_key FROM conversation_presets WHERE id = $1 AND conversation_id = $2
-    """, preset_id, conversation_id)
-    
+    """,
+        preset_id,
+        conversation_id,
+    )
+
     await conn.close()
-    
+
     if not row or not row["preset_object_key"]:
         raise HTTPException(status_code=404, detail="Conversation preset not found")
-    
+
     preset_object_key = row["preset_object_key"]
     preset_url = f"{PRESETS_BUCKET}/{preset_object_key}"
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.get(preset_url)
-        
+
         if response.status_code != 200:
             raise HTTPException(
-                status_code=response.status_code, 
-                detail=f"Failed to fetch preset from storage: {response.status_code}"
+                status_code=response.status_code,
+                detail=f"Failed to fetch preset from storage: {response.status_code}",
             )
-        
+
         return response.json()
 
 
@@ -1424,5 +1732,3 @@ def get_preview_url(preview_object_key: str | None) -> str | None:
     if not preview_object_key or not PREVIEWS_BUCKET:
         return None
     return f"{PREVIEWS_BUCKET}/{preview_object_key}"
-
-
