@@ -53,6 +53,11 @@ export default function BrowsePage() {
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
   const [savingPresetIds, setSavingPresetIds] = useState<Set<string>>(new Set());
   const [savedPresetIds, setSavedPresetIds] = useState<Set<string>>(new Set());
+  const [expandedPresetPostId, setExpandedPresetPostId] = useState<string | null>(null);
+  const [presetDataCache, setPresetDataCache] = useState<Record<string, ParsedPreset | "loading" | "error">>({});
+  // Controls the feed type
+  const [feedType, setFeedType] = useState("new");
+
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -101,26 +106,37 @@ export default function BrowsePage() {
   useEffect(() => {
     const fetchPosts = async () => {
       setPostsLoading(true);
-      
+
       try {
-        const url = searchQuery 
-          ? `${API_URL}/posts?search=${encodeURIComponent(searchQuery)}`
-          : `${API_URL}/posts`;
-        
+        let url = `${API_URL}/feed?type=${feedType}`;
+
+        if (feedType === "recommended") {
+          if (!user?.id) {
+            setPosts([]);
+            return;
+          }
+          url += `&user_uuid=${user.id}`;
+        }
+
+        if (searchQuery.trim()) {
+          url += `&search=${encodeURIComponent(searchQuery)}`;
+        }
+
         const response = await fetch(url);
         if (!response.ok) throw new Error("Failed to fetch posts");
-        
+
         const data = await response.json();
-        setPosts(data.posts);
+        setPosts(data.posts || []);
       } catch (error) {
         console.error("Error fetching posts:", error);
+        setPosts([]);
+      } finally {
+        setPostsLoading(false);
       }
-      
-      setPostsLoading(false);
     };
 
     fetchPosts();
-  }, [searchQuery]);
+  }, [feedType, searchQuery, user?.id]);
 
   // Handle upvote/downvote via backend API
   const handleVote = async (postId: string, direction: "up" | "down") => {
@@ -133,7 +149,7 @@ export default function BrowsePage() {
       const response = await fetch(`${API_URL}/posts/${postId}/${direction}vote`, {
         method: "POST",
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setPosts((prev) =>
@@ -156,7 +172,7 @@ export default function BrowsePage() {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete post");
-      
+
       setPosts((prev) => prev.filter((p) => p.id !== postId));
     } catch (error) {
       console.error("Error deleting post:", error);
@@ -219,11 +235,23 @@ export default function BrowsePage() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+
+    if (diffMs < 0) return "just now";
+
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    if (diffMinutes < 1) return "just now";
+    if (diffMinutes < 60) return `${diffMinutes} min${diffMinutes === 1 ? "" : "s"} ago`;
+    if (diffHours < 24) return `${diffHours} hr${diffHours === 1 ? "" : "s"} ago`;
+    if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+    if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
+    return `${diffYears} yr${diffYears === 1 ? "" : "s"} ago`;
   };
 
   const handleDiscordLogin = async () => {
@@ -322,7 +350,7 @@ export default function BrowsePage() {
         <Link href="/" className="text-xl font-semibold text-black dark:text-white hover:opacity-80 transition">
           Resonance
         </Link>
-        
+
         {/* Search Box */}
         <div className="flex-1 mx-8 max-w-2xl">
           <input
@@ -333,7 +361,7 @@ export default function BrowsePage() {
             className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
           />
         </div>
-        
+
         {/* Generate and Profile */}
         <div className="relative flex items-center gap-6">
           <Link href="/generate" className="text-sm font-medium text-black transition-colors hover:text-zinc-600 hover:underline dark:text-white dark:hover:text-zinc-300 cursor-pointer">
@@ -405,18 +433,18 @@ export default function BrowsePage() {
                       Close
                     </button>
                   </div>
-                    {user ? (
-                   <div className="space-y-3">
-                  <button
-                    onClick={() => router.push("/profile")}
-                      className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 w-full"
-                    >
-                    Signed in as <span className="font-medium">{user.email}</span>
-                    </button>
-                    <button
-                    onClick={handleSignOut}
-                  className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-                          >
+                  {user ? (
+                    <div className="space-y-3">
+                      <button
+                        onClick={() => router.push("/profile")}
+                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 w-full"
+                      >
+                        Signed in as <span className="font-medium">{user.email}</span>
+                      </button>
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                      >
                         Sign out
                       </button>
                     </div>
@@ -480,6 +508,31 @@ export default function BrowsePage() {
             <p className="mt-2 text-zinc-600 dark:text-zinc-400">Discover synth presets shared by the community</p>
           </div>
 
+          <div className="mb-6 flex gap-2">
+            {[
+              { key: "new", label: "New" },
+              { key: "trending", label: "Trending" },
+              { key: "recommended", label: "Recommended" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => {
+                  if (tab.key === "recommended" && !user) {
+                    setShowAuthPanel(true);
+                    return;
+                  }
+                  setFeedType(tab.key);
+                }}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${feedType === tab.key
+                  ? "bg-black text-white dark:bg-white dark:text-black"
+                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           {/* Posts List */}
           {postsLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -488,7 +541,7 @@ export default function BrowsePage() {
           ) : posts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="text-zinc-500 dark:text-zinc-400">
-                {searchQuery ? "No posts match your search" : "No posts yet. Be the first to share!"}
+                {searchQuery ? "No posts match your search" : "Save some presets to get post recommendations!"}
               </div>
             </div>
           ) : (
@@ -515,19 +568,19 @@ export default function BrowsePage() {
                           />
                         ) : null}
                         <svg
-                            style={post.author?.avatar ? { display: 'none' } : undefined}
-                            className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                            />
-                          </svg>
+                          style={post.author?.avatar ? { display: 'none' } : undefined}
+                          className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                          />
+                        </svg>
                       </div>
                       <div>
                         <div className="font-medium text-black dark:text-white">
@@ -614,19 +667,18 @@ export default function BrowsePage() {
 
                     {/* Comment Toggle Button */}
                     <button
-                        onClick={() => handleToggleComments(post.id)}
-                        className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition ml-4 cursor-pointer ${
-                            expandedPostId === post.id
-                                ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
-                                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      onClick={() => handleToggleComments(post.id)}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition ml-4 cursor-pointer ${expandedPostId === post.id
+                        ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
+                        : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                         }`}
                     >
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                         />
                       </svg>
                       <span>{expandedPostId === post.id ? "Hide Comments" : "Comments"}</span>
@@ -690,12 +742,12 @@ export default function BrowsePage() {
                     </div>
                   )}
 
-                    {/* Comment Section — only rendered for the expanded post */}
-                    {expandedPostId === post.id && (
-                        <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-                          <Comments postId={post.id} user={user} />
-                        </div>
-                    )}
+                  {/* Comment Section — only rendered for the expanded post */}
+                  {expandedPostId === post.id && (
+                    <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                      <Comments postId={post.id} user={user} />
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
