@@ -49,6 +49,8 @@ export default function BrowsePage() {
   const [postsLoading, setPostsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
+  const [savingPresetIds, setSavingPresetIds] = useState<Set<string>>(new Set());
+  const [savedPresetIds, setSavedPresetIds] = useState<Set<string>>(new Set());
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -161,6 +163,56 @@ export default function BrowsePage() {
 
   const handleToggleComments = (postId: string) => {
     setExpandedPostId((prev) => (prev === postId ? null : postId));
+  };
+
+  const handleSavePreset = async (presetId: string | null, postOwnerUserId: string | null) => {
+    if (!presetId) return;
+    if (!user) {
+      setShowAuthPanel(true);
+      return;
+    }
+
+    if (savingPresetIds.has(presetId) || savedPresetIds.has(presetId)) return;
+
+    setSavingPresetIds((prev) => new Set(prev).add(presetId));
+
+    try {
+      if (!supabase) throw new Error("Supabase client not configured");
+
+      const { data: preset, error: presetError } = await supabase
+        .from("presets")
+        .select("owner_user_id, title, supabase_key, preset_object_key, preview_object_key")
+        .eq("id", presetId)
+        .single();
+
+      if (presetError || !preset) throw new Error("Failed to load preset details");
+
+      const { error: insertError } = await supabase
+        .from("saved_presets")
+        .insert({
+          owner_user_id: user.id,
+          creator_user_id: preset.owner_user_id ?? postOwnerUserId ?? null,
+          title: preset.title,
+          description: null,
+          visibility: "public",
+          supabase_key: preset.supabase_key,
+          preset_object_key: preset.preset_object_key,
+          preview_object_key: preset.preview_object_key,
+          source: "saved",
+        });
+
+      if (insertError) throw new Error(insertError.message || "Failed to save preset");
+
+      setSavedPresetIds((prev) => new Set(prev).add(presetId));
+    } catch (error) {
+      console.error("Error saving preset:", error);
+    } finally {
+      setSavingPresetIds((prev) => {
+        const next = new Set(prev);
+        next.delete(presetId);
+        return next;
+      });
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -576,6 +628,27 @@ export default function BrowsePage() {
                         />
                       </svg>
                       <span>{expandedPostId === post.id ? "Hide Comments" : "Comments"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSavePreset(post.preset_id, post.owner_user_id)}
+                      disabled={
+                        !post.preset_id ||
+                        (post.preset_id ? savingPresetIds.has(post.preset_id) : false) ||
+                        (post.preset_id ? savedPresetIds.has(post.preset_id) : false)
+                      }
+                      className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer ${
+                        savedPresetIds.has(post.preset_id ?? "")
+                          ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
+                          : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {savingPresetIds.has(post.preset_id ?? "")
+                        ? "Saving..."
+                        : savedPresetIds.has(post.preset_id ?? "")
+                          ? "Saved"
+                          : "Save"}
                     </button>
 
                     {/* Delete Button - only visible to post owner */}
