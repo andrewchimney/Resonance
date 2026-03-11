@@ -15,12 +15,25 @@ export default function AuthCallback() {
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    // Supabase automatically detects the #access_token hash and establishes the session
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN") {
-        const next = searchParams.get("next");
-        // Only allow relative paths to prevent open-redirect attacks
-        const destination = next && next.startsWith("/") ? next : "/browse";
+    const next = searchParams.get("next");
+    // Only allow relative paths to prevent open-redirect attacks
+    const destination = next && next.startsWith("/") ? next : "/browse";
+
+    // Guard against double-firing (INITIAL_SESSION + SIGNED_IN both carrying a user)
+    let redirected = false;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session?.user && !redirected) {
+        redirected = true;
+        // Ensure a public.users row exists for OAuth (e.g. Discord) sign-ins.
+        await supabase.from("users").upsert(
+          {
+            id: session.user.id,
+            email: session.user.email ?? null,
+            username: null,
+          },
+          { onConflict: "id", ignoreDuplicates: true }
+        );
         router.replace(destination);
       }
     });
