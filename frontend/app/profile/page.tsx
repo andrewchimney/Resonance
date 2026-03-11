@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import { PresetViewer, parseVitalPreset, type ParsedPreset, type RawVitalPreset } from "../components/PresetViewer";
+import Link from "next/link";
+import AudioNotePlayer from "../components/AudioNotePlayer";
+import { Comments } from "../components/Comments/Comments";
 
 interface UserProfile {
   username: string | null;
@@ -40,8 +42,6 @@ interface PostData {
 }
 
 
-interface PresetData extends SavedPresetData {}
-
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/public/";
 
@@ -70,9 +70,9 @@ export default function ProfilePage() {
   const [presets, setPresets] = useState<SavedPresetData[]>([]);
   const [posts, setPosts] = useState<PostData[]>([]);
   const [loadingPresets, setLoadingPresets] = useState(false);
-  const [loadingPresetPreviews, setLoadingPresetPreviews] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
-  const [parsedPresetById, setParsedPresetById] = useState<Record<string, ParsedPreset>>({});
+  const [creatorUsernames, setCreatorUsernames] = useState<Record<string, string>>({});
+  const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
 
   const [searchUsername, setSearchUsername] = useState("");
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -256,69 +256,81 @@ export default function ProfilePage() {
       associatedPresets = (associatedRows || []) as SavedPresetData[];
     }
 
-    setPresets(associatedPresets);
-
-    if (associatedPresets.length === 0) {
-      setParsedPresetById({});
-      return;
-    }
-
-    setLoadingPresetPreviews(true);
-
-    // UTILIZED FROM PRESET PREVIEW COMPONET
-
-    const parsedEntries = await Promise.all(
-      associatedPresets.map(async (preset) => {
-        try {
-          const presetDataUrl = API_URL
-            ? `${API_URL}/saved-presets/${preset.owner_user_id}/${preset.id}/data`
-            : `http://localhost:8000/api/saved-presets/${preset.owner_user_id}/${preset.id}/data`;
-
-          let rawPreset: RawVitalPreset | null = null;
-
-          const presetResponse = await fetch(presetDataUrl);
-          if (presetResponse.ok) {
-            rawPreset = (await presetResponse.json()) as RawVitalPreset;
-          }
-
-          if (!rawPreset) {
-            const directPresetUrl = resolveStorageAssetUrl(preset.preset_object_key, "presets");
-            if (directPresetUrl) {
-              const directResponse = await fetch(directPresetUrl);
-              if (directResponse.ok) {
-                rawPreset = (await directResponse.json()) as RawVitalPreset;
-              }
-            }
-          }
-
-          if (!rawPreset) return null;
-
-          const parsedPreset = parseVitalPreset(rawPreset);
-          return [preset.id, parsedPreset] as const;
-        } catch (error) {
-          console.log(`Error loading preset preview for ${preset.id}:`, error);
-          return null;
-        }
-      })
+    const creatorIds = Array.from(
+      new Set(
+        associatedPresets
+          .map((preset) => preset.creator_user_id)
+          .filter((id): id is string => Boolean(id))
+      )
     );
 
-    const parsedMap: Record<string, ParsedPreset> = {};
-    parsedEntries.forEach((entry) => {
-      if (!entry) return;
-      const [presetId, parsedPreset] = entry;
-      parsedMap[presetId] = parsedPreset;
-    });
+    if (creatorIds.length > 0) {
+      const { data: creatorRows, error: creatorError } = await supabase
+        .from("users")
+        .select("id, username")
+        .in("id", creatorIds);
 
-    setParsedPresetById(parsedMap);
+      let creatorMap: Record<string, string> = {};
+
+      if (!creatorError && creatorRows) {
+        for (const creator of creatorRows as Array<{ id: string; username: string | null }>) {
+          if (creator.username) {
+            creatorMap[creator.id] = creator.username;
+          }
+        }
+      }
+
+      const unresolvedCreatorIds = creatorIds.filter((id) => !creatorMap[id]);
+      if (unresolvedCreatorIds.length > 0) {
+        const postsApiUrl = API_URL ? `${API_URL}/posts` : "http://localhost:8000/api/posts";
+        const postsRes = await fetch(postsApiUrl);
+        if (postsRes.ok) {
+          const postsData = await postsRes.json();
+          const posts = (postsData.posts || []) as Array<{
+            owner_user_id?: string | null;
+            author?: { username?: string | null } | null;
+          }>;
+
+          for (const post of posts) {
+            if (post.owner_user_id && post.author?.username && unresolvedCreatorIds.includes(post.owner_user_id)) {
+              creatorMap[post.owner_user_id] = post.author.username;
+            }
+          }
+        }
+      }
+
+      setCreatorUsernames(creatorMap);
+    } else {
+      setCreatorUsernames({});
+    }
+
+    setPresets(associatedPresets);
   } catch (error) {
     console.log("Error fetching presets:", error);
     setPresets([]);
-    setParsedPresetById({});
+    setCreatorUsernames({});
   } finally {
     setLoadingPresets(false);
-    setLoadingPresetPreviews(false);
   }
 }
+
+  async function removeSavedPreset(savedPresetId: string) {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from("saved_presets")
+        .delete()
+        .eq("id", savedPresetId)
+        .eq("owner_user_id", user.id);
+
+      if (error) throw error;
+
+      setPresets((prev) => prev.filter((preset) => preset.id !== savedPresetId));
+    } catch (error) {
+      console.log("Error removing saved preset:", error);
+    }
+  }
 
   async function fetchPostsData() {
     if (!user) return;
@@ -475,6 +487,11 @@ export default function ProfilePage() {
 
   const closePostsPopup = () => {
     setShowPostsPopup(false);
+    setExpandedPostId(null);
+  };
+
+  const handleToggleComments = (postId: string) => {
+    setExpandedPostId((prev) => (prev === postId ? null : postId));
   };
 
   async function handleUsernameSearch(e: React.FormEvent) {
@@ -746,11 +763,7 @@ export default function ProfilePage() {
                   </span>
                 </div>
                 
-                <div className="text-center mb-2">
-                  <span className="text-lg font-bold text-white">
-                    SEPARATE ALL GENRES USING COMMAS
-                  </span>
-                </div>
+                
               </div>
               
               <div 
@@ -862,47 +875,63 @@ export default function ProfilePage() {
                       </div>
                     ) : (
                       <div className="space-y-6">
-                        {presets.map((preset) => (
-                          <div
-                            key={preset.id}
-                            className="w-full bg-zinc-900 p-6 border border-zinc-700 shadow-lg"
-                          >
-                            {/* PRESET PREVIEW COMPONENT */}
-                            {parsedPresetById[preset.id] ? (
-                              <PresetViewer
-                                preset={parsedPresetById[preset.id]}
-                                presetName={preset.title || "Untitled Preset"}
-                                category={preset.source}
-                                uploadDate={preset.created_at ? new Date(preset.created_at) : undefined}
-                                compact
-                              />
-                            ) : (
-                              <div className="text-zinc-700">
-                                <div className="text-lg font-bold text-zinc-800">
-                                  {preset.title || "Untitled Preset"}
-                                </div>
-                                <p className="text-sm text-zinc-600 mt-1">
-                                  {loadingPresetPreviews ? "Loading preset preview..." : "Preset preview unavailable"}
-                                </p>
-                              </div>
-                            )}
+                        {presets.map((preset) => {
+                          const previewUrl = resolveStorageAssetUrl(preset.preview_object_key, "previews");
 
-                            <div className="mt-0 pt-4 border-t border-zinc-700 space-y-3">
-                              {preset.preview_object_key ? (
-                                <audio
-                                  controls
-                                  className="w-full"
-                                  style={{ height: "40px" }}
-                                  src={resolveStorageAssetUrl(preset.preview_object_key, "previews") || undefined}
-                                >
-                                  Audio element not supported on your browser.
-                                </audio>
+                          return (
+                            <div
+                              key={preset.id}
+                              className="w-full bg-zinc-900 p-6 border border-zinc-700 shadow-lg"
+                            >
+                              <div className="mb-2 flex items-center gap-3">
+                                <h3 className="text-xl font-semibold text-white">
+                                  {preset.title || "Untitled Preset"}
+                                </h3>
+                                {preset.creator_user_id && creatorUsernames[preset.creator_user_id] && (
+                                  <span className="text-sm text-zinc-300">
+                                    Posted by:{" "}
+                                    <Link
+                                      href={`/profile/${encodeURIComponent(creatorUsernames[preset.creator_user_id])}`}
+                                      className="underline hover:text-white"
+                                    >
+                                      {creatorUsernames[preset.creator_user_id]}
+                                    </Link>
+                                  </span>
+                                )}
+                              </div>
+                              {preset.description && (
+                                <p className="text-zinc-300 mb-4">{preset.description}</p>
+                              )}
+
+                              {previewUrl ? (
+                                <div className="mb-2">
+                                  <audio
+                                    controls
+                                    className="w-full h-10 rounded-lg"
+                                    src={previewUrl}
+                                  >
+                                    Your browser does not support the audio element.
+                                  </audio>
+                                  <div className="mt-2 flex items-center gap-3">
+                                    <AudioNotePlayer
+                                      audioPath={previewUrl}
+                                      buttonText="Test other notes"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => removeSavedPreset(preset.id)}
+                                      className="rounded-lg border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
                               ) : (
                                 <div className="text-xs text-zinc-400 italic">No preview available</div>
                               )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1060,7 +1089,14 @@ export default function ProfilePage() {
                                 </svg>
                               </button>
 
-                              <button className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition ml-4">
+                              <button
+                                onClick={() => handleToggleComments(post.id)}
+                                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition ml-4 cursor-pointer ${
+                                  expandedPostId === post.id
+                                    ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
+                                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                }`}
+                              >
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path
                                     strokeLinecap="round"
@@ -1069,9 +1105,15 @@ export default function ProfilePage() {
                                     d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                                   />
                                 </svg>
-                                <span>Comments</span>
+                                <span>{expandedPostId === post.id ? "Hide Comments" : "Comments"}</span>
                               </button>
                             </div>
+
+                            {expandedPostId === post.id && (
+                              <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                                <Comments postId={post.id} user={user} />
+                              </div>
+                            )}
                           </article>
                         ))}
                       </div>
