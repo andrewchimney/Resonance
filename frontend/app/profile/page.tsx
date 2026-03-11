@@ -3,15 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-
-interface HistoryData {
-  id: string;
-  email: string;
-  username: string | null;
-  presets_generated: number;
-  posts_created: number;
-  created_at?: string;
-}
+import { PresetViewer, parseVitalPreset, type ParsedPreset, type RawVitalPreset } from "../components/PresetViewer";
 
 interface UserProfile {
   username: string | null;
@@ -34,14 +26,24 @@ interface SavedPresetData {
 interface PostData {
   id: string;
   owner_user_id: string | null;
+  preset_id: string | null;
   title: string;
   description: string | null;
   visibility: string;
   created_at: string;
+  votes: number;
+  author?: {
+    username: string;
+  } | null;
+  preview_object_key?: string | null;
+  preview_url?: string | null;
 }
 
-// Legacy interface for compatibility
+
 interface PresetData extends SavedPresetData {}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const STORAGE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL + "/storage/v1/object/public/";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -50,7 +52,6 @@ export default function ProfilePage() {
   const [profileUrl, setProfileUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [showAccountPopup, setShowAccountPopup] = useState(false);
-  const [historyData, setHistoryData] = useState<HistoryData | null>(null);
   const [loadingAccount, setLoadingAccount] = useState(false);
   const [showPreferencesPopup, setShowPreferencesPopup] = useState(false);
   const [generationPreferences, setGenerationPreferences] = useState("");
@@ -63,14 +64,15 @@ export default function ProfilePage() {
   const [newUsername, setNewUsername] = useState("");
   const [savingUsername, setSavingUsername] = useState(false);
 
-  // New states for History and Posts
+  //states History and Posts
   const [showHistoryPopup, setShowHistoryPopup] = useState(false);
   const [showPostsPopup, setShowPostsPopup] = useState(false);
   const [presets, setPresets] = useState<SavedPresetData[]>([]);
   const [posts, setPosts] = useState<PostData[]>([]);
   const [loadingPresets, setLoadingPresets] = useState(false);
+  const [loadingPresetPreviews, setLoadingPresetPreviews] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
+  const [parsedPresetById, setParsedPresetById] = useState<Record<string, ParsedPreset>>({});
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -81,10 +83,10 @@ export default function ProfilePage() {
     () => createClient(supabaseUrl, supabaseAnonKey),
     [supabaseUrl, supabaseAnonKey]
   );
-
+  
   useEffect(() => {
     let mounted = true;
-
+    // UNAUTHHENTICATED USER REDIRECT BACK TO LANDING PAGE
     supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
 
@@ -142,6 +144,8 @@ export default function ProfilePage() {
     };
   }, [supabase, router]);
 
+  ///HANDES PROFILE PICTURE UPLOAD
+  
   async function uploadProfilePicture(e: React.ChangeEvent<HTMLInputElement>) {
     try {
       setUploading(true);
@@ -169,6 +173,8 @@ export default function ProfilePage() {
     }
   }
 
+  //GET FOR ACCOUNNT INFO
+
   async function fetchAccountData() {
     if (!user) return;
     
@@ -191,24 +197,13 @@ export default function ProfilePage() {
         setNewUsername(profile.username);
       }
       
-      const mockHistoryData: HistoryData = {
-        id: user.id,
-        email: user.email || "",
-        username: profile?.username || null,
-        presets_generated: 0,
-        posts_created: 0,
-        created_at: profile?.created_at
-      };
-      
-      setHistoryData(mockHistoryData);
-      
     } catch (error) {
       console.log("Error in account data fetch:", error);
     } finally {
       setLoadingAccount(false);
     }
   }
-
+  //GET FOR PREFERENCES
   async function fetchPreferencesData() {
     if (!user) return;
     
@@ -228,21 +223,96 @@ export default function ProfilePage() {
     }
   }
 
+  //HANDLES SAVED PRESTES FOR HISTORY
  async function fetchPresetsData() {
   if (!user) return;
 
   try {
     setLoadingPresets(true);
-    const response = await fetch(`/api/users/${user.id}/saved-presets`);
-    if (!response.ok) throw new Error("Failed to fetch presets");
-    
-    const data = await response.json();
-    setPresets(data.presets || []);
+    let associatedPresets: SavedPresetData[] = [];
+
+    const { data: associatedRows, error: associatedError } = await supabase
+      .from("saved_presets")
+      .select(
+        "id, owner_user_id, creator_user_id, title, description, visibility, preset_object_key, preview_object_key, source, created_at"
+      )
+      .or(`owner_user_id.eq.${user.id},creator_user_id.eq.${user.id}`)
+      .order("created_at", { ascending: false });
+
+    if (associatedError) {
+      const savedPresetsUrl = API_URL
+        ? `${API_URL}/users/${user.id}/saved-presets`
+        : `http://localhost:8000/api/users/${user.id}/saved-presets`;
+
+      const response = await fetch(savedPresetsUrl);
+      if (!response.ok) throw new Error("Failed to fetch presets");
+      const data = await response.json();
+      associatedPresets = data.presets || [];
+    } else {
+      associatedPresets = (associatedRows || []) as SavedPresetData[];
+    }
+
+    setPresets(associatedPresets);
+
+    if (associatedPresets.length === 0) {
+      setParsedPresetById({});
+      return;
+    }
+
+    setLoadingPresetPreviews(true);
+
+    // UTILIZED FROM PRESET PREVIEW COMPONET
+
+    const parsedEntries = await Promise.all(
+      associatedPresets.map(async (preset) => {
+        try {
+          const presetDataUrl = API_URL
+            ? `${API_URL}/saved-presets/${preset.owner_user_id}/${preset.id}/data`
+            : `http://localhost:8000/api/saved-presets/${preset.owner_user_id}/${preset.id}/data`;
+
+          let rawPreset: RawVitalPreset | null = null;
+
+          const presetResponse = await fetch(presetDataUrl);
+          if (presetResponse.ok) {
+            rawPreset = (await presetResponse.json()) as RawVitalPreset;
+          }
+
+          if (!rawPreset) {
+            const directPresetUrl = resolveStorageAssetUrl(preset.preset_object_key, "presets");
+            if (directPresetUrl) {
+              const directResponse = await fetch(directPresetUrl);
+              if (directResponse.ok) {
+                rawPreset = (await directResponse.json()) as RawVitalPreset;
+              }
+            }
+          }
+
+          if (!rawPreset) return null;
+
+          const parsedPreset = parseVitalPreset(rawPreset);
+          return [preset.id, parsedPreset] as const;
+        } catch (error) {
+          console.log(`Error loading preset preview for ${preset.id}:`, error);
+          return null;
+        }
+      })
+    );
+
+    const parsedMap: Record<string, ParsedPreset> = {};
+    parsedEntries.forEach((entry) => {
+      if (!entry) return;
+      const [presetId, parsedPreset] = entry;
+      parsedMap[presetId] = parsedPreset;
+    });
+
+    setParsedPresetById(parsedMap);
   } catch (error) {
     console.log("Error fetching presets:", error);
     setPresets([]);
+    setParsedPresetById({});
   } finally {
     setLoadingPresets(false);
+    setLoadingPresetPreviews(false);
   }
 }
 
@@ -251,18 +321,63 @@ export default function ProfilePage() {
     
     try {
       setLoadingPosts(true);
-      const response = await fetch("/api/posts");
+      const postsApiUrl = API_URL ? `${API_URL}/posts` : "http://localhost:8000/api/posts";
+      const response = await fetch(postsApiUrl);
       if (!response.ok) throw new Error("Failed to fetch posts");
       
       const data = await response.json();
-      // Filter posts to only show user's own posts
-      const userPosts = data.posts?.filter((post: PostData) => post.owner_user_id === user.id) || [];
-      setPosts(userPosts);
+
+      const { data: associatedPresets } = await supabase
+        .from("presets")
+        .select("id")
+        .or(`owner_user_id.eq.${user.id},creator_user_id.eq.${user.id}`);
+
+      const associatedPresetIds = new Set(
+        (associatedPresets || []).map((preset: { id: string }) => preset.id)
+      );
+      const normalizedUsername = userProfile?.username?.trim().toLowerCase();
+
+      const associatedPosts =
+        data.posts?.filter((post: PostData) => {
+        const isOwner = post.owner_user_id === user.id;
+        const isFromAssociatedPreset = Boolean(post.preset_id && associatedPresetIds.has(post.preset_id));
+        const isSameAuthorUsername =
+          Boolean(normalizedUsername) &&
+          Boolean(post.author?.username) &&
+          post.author?.username.toLowerCase() === normalizedUsername;
+
+        return isOwner || isFromAssociatedPreset || isSameAuthorUsername;
+        }) || [];
+
+      setPosts(associatedPosts);
     } catch (error) {
       console.log("Error fetching posts:", error);
       setPosts([]);
     } finally {
       setLoadingPosts(false);
+    }
+  }
+
+  async function handleVote(postId: string, direction: "up" | "down") {
+    const voteApiUrl = API_URL
+      ? `${API_URL}/posts/${postId}/${direction}vote`
+      : `http://localhost:8000/api/posts/${postId}/${direction}vote`;
+
+    try {
+      const response = await fetch(voteApiUrl, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPosts((prev: PostData[]) =>
+          prev.map((post: PostData) =>
+            post.id === postId ? { ...post, votes: data.votes } : post
+          )
+        );
+      }
+    } catch (error) {
+      console.error("Error voting:", error);
     }
   }
 
@@ -352,7 +467,6 @@ export default function ProfilePage() {
 
   const closeHistoryPopup = () => {
     setShowHistoryPopup(false);
-    setSelectedPresetId(null);
   };
 
   const closePostsPopup = () => {
@@ -371,6 +485,21 @@ export default function ProfilePage() {
     } catch (error) {
       return "Invalid date";
     }
+  };
+
+  const resolveStorageAssetUrl = (
+    objectKey: string | null | undefined,
+    bucket: "presets" | "previews"
+  ) => {
+    if (!objectKey) return null;
+    if (/^https?:\/\//i.test(objectKey)) return objectKey;
+
+    const normalized = objectKey.replace(/^\/+/, "");
+    if (normalized.startsWith("presets/") || normalized.startsWith("previews/")) {
+      return `${STORAGE_URL}${normalized}`;
+    }
+
+    return `${STORAGE_URL}${bucket}/${normalized}`;
   };
 
   if (!user) return <div className="min-h-screen flex items-center justify-center bg-black">
@@ -419,7 +548,7 @@ export default function ProfilePage() {
             onClick={closeAccountPopup}
           >
             <div 
-              className="relative rounded-3xl max-w-md w-full mx-4 overflow-hidden shadow-2xl"
+              className="relative max-w-md w-full mx-4 overflow-hidden shadow-2xl"
               onClick={(e) => e.stopPropagation()}
               style={{
                 border: "2px solid rgba(255, 255, 255, 0.3)",
@@ -428,10 +557,6 @@ export default function ProfilePage() {
             >
               <div 
                 className="bg-black px-12 pt-12 pb-8"
-                style={{
-                  borderTopLeftRadius: '1.5rem',
-                  borderTopRightRadius: '1.5rem',
-                }}
               >
                 <button
                   onClick={closeAccountPopup}
@@ -451,8 +576,6 @@ export default function ProfilePage() {
                   backgroundImage: "url('/bwire2.jpg')",
                   backgroundSize: "cover",
                   backgroundPosition: "center",
-                  borderBottomLeftRadius: '1.5rem',
-                  borderBottomRightRadius: '1.5rem',
                 }}
               >
                 {loadingAccount ? (
@@ -466,7 +589,7 @@ export default function ProfilePage() {
                   </div>
                 ) : (
                   <div className="space-y-6 pt-4">
-                    <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+                    <div className="bg-white/95 backdrop-blur-sm p-6 border border-white/30 shadow-lg">
                       <div className="text-lg font-bold text-zinc-800 mb-3">
                         Change Username
                       </div>
@@ -476,14 +599,14 @@ export default function ProfilePage() {
                             type="text"
                             value={newUsername}
                             onChange={(e) => setNewUsername(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl border border-zinc-300 bg-zinc-50 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none"
+                            className="w-full px-4 py-3 border border-zinc-300 bg-zinc-50 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none"
                             placeholder="Enter new username"
                           />
                           <div className="flex gap-2">
                             <button
                               onClick={saveUsername}
                               disabled={savingUsername || !newUsername.trim()}
-                              className="flex-1 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-colors"
+                              className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-colors"
                             >
                               {savingUsername ? "Saving..." : "Save"}
                             </button>
@@ -492,7 +615,7 @@ export default function ProfilePage() {
                                 setEditingUsername(false);
                                 setNewUsername(userProfile?.username || "");
                               }}
-                              className="flex-1 px-4 py-3 rounded-xl bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-semibold transition-colors"
+                              className="flex-1 px-4 py-3 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-semibold transition-colors"
                             >
                               Cancel
                             </button>
@@ -505,7 +628,7 @@ export default function ProfilePage() {
                           </div>
                           <button
                             onClick={() => setEditingUsername(true)}
-                            className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-900 text-white font-semibold transition-colors"
+                            className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold transition-colors"
                           >
                             Edit
                           </button>
@@ -514,7 +637,7 @@ export default function ProfilePage() {
                     </div>
 
                   
-                    <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+                    <div className="bg-white/95 backdrop-blur-sm p-6 border border-white/30 shadow-lg">
                       <div className="text-lg font-bold text-zinc-800 mb-3">
                         Email
                       </div>
@@ -522,7 +645,7 @@ export default function ProfilePage() {
                         {user.email}
                       </div>
                     </div>
-                    <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+                    <div className="bg-white/95 backdrop-blur-sm p-6 border border-white/30 shadow-lg">
                       <div className="text-lg font-bold text-zinc-800 mb-3">
                         Member Since
                       </div>
@@ -544,7 +667,7 @@ export default function ProfilePage() {
             onClick={closePreferencesPopup}
           >
             <div 
-              className="relative rounded-3xl max-w-md w-full mx-4 overflow-hidden shadow-2xl"
+              className="relative max-w-md w-full mx-4 overflow-hidden shadow-2xl"
               onClick={(e) => e.stopPropagation()}
               style={{
                 border: "2px solid rgba(255, 255, 255, 0.3)",
@@ -553,10 +676,6 @@ export default function ProfilePage() {
             >
               <div 
                 className="bg-black px-12 pt-12 pb-8"
-                style={{
-                  borderTopLeftRadius: '1.5rem',
-                  borderTopRightRadius: '1.5rem',
-                }}
               >
                 {/* CLOSE */}
                 <button
@@ -586,8 +705,6 @@ export default function ProfilePage() {
                   backgroundImage: "url('/bwire2.jpg')",
                   backgroundSize: "cover",
                   backgroundPosition: "center",
-                  borderBottomLeftRadius: '1.5rem',
-                  borderBottomRightRadius: '1.5rem',
                 }}
               >
                 {loadingPreferences ? (
@@ -605,14 +722,14 @@ export default function ProfilePage() {
                       <textarea
                         value={generationPreferences}
                         onChange={(e) => setGenerationPreferences(e.target.value)}
-                        className="w-full h-40 px-4 py-3 rounded-xl border border-zinc-300 bg-zinc-50 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none resize-none"
+                        className="w-full h-40 px-4 py-3 border border-zinc-300 bg-zinc-50 text-base text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none resize-none"
                         placeholder="Rock, Jazz, Electronic, Ambient..."
                       />
                       <div className="flex justify-center mt-6">
                         <button
                           onClick={savePreferences}
                           disabled={savingPreferences}
-                          className="rounded-xl border border-zinc-300 bg-white px-8 py-3 text-base font-medium text-black transition hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="border border-zinc-300 bg-white px-8 py-3 text-base font-medium text-black transition hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {savingPreferences ? "Saving..." : "Save"}
                         </button>
@@ -632,7 +749,7 @@ export default function ProfilePage() {
             onClick={closeHistoryPopup}
           >
             <div 
-              className="relative rounded-3xl max-w-4xl w-full mx-4 overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="relative max-w-4xl w-full mx-4 overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
               style={{
                 border: "2px solid rgba(255, 255, 255, 0.3)",
@@ -641,10 +758,6 @@ export default function ProfilePage() {
             >
               <div 
                 className="bg-black px-12 pt-12 pb-8"
-                style={{
-                  borderTopLeftRadius: '1.5rem',
-                  borderTopRightRadius: '1.5rem',
-                }}
               >
                 <button
                   onClick={closeHistoryPopup}
@@ -659,15 +772,18 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div 
-                className="px-12 pb-12"
-                style={{
-                  backgroundImage: "url('/bwire2.jpg')",
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                  borderBottomLeftRadius: '1.5rem',
-                  borderBottomRightRadius: '1.5rem',
-                }}
+                className="relative px-12 pb-12 overflow-hidden"
               >
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    backgroundImage: "url('/bwire3.jpg')",
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    filter: "invert(1)",
+                  }}
+                />
+                <div className="relative z-10">
                 {loadingPresets ? (
                   <div className="text-center pt-4">
                     <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white/70 mb-4"></div>
@@ -677,63 +793,10 @@ export default function ProfilePage() {
                       </span>
                     </div>
                   </div>
-                ) : selectedPresetId ? (
-                  <div className="space-y-4 pt-4">
-                    <button
-                      onClick={() => setSelectedPresetId(null)}
-                      className="mb-4 px-4 py-2 bg-white/95 text-zinc-800 rounded-lg font-semibold hover:bg-white transition"
-                    >
-                      ← Back to List
-                    </button>
-                    {presets
-                      .filter((p) => p.id === selectedPresetId)
-                      .map((preset) => (
-                        <div key={preset.id} className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-                          <div className="space-y-4">
-                            <div>
-                              <h3 className="text-2xl font-bold text-zinc-800 mb-2">{preset.title}</h3>
-                              {preset.description && (
-                                <p className="text-zinc-600 text-sm mb-4">{preset.description}</p>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                              <div>
-                                <span className="font-semibold text-zinc-700">Visibility:</span>
-                                <p className="text-zinc-600 capitalize">{preset.visibility}</p>
-                              </div>
-                              <div>
-                                <span className="font-semibold text-zinc-700">Source:</span>
-                                <p className="text-zinc-600 capitalize">{preset.source}</p>
-                              </div>
-                              {preset.creator_user_id && (
-                                <div>
-                                  <span className="font-semibold text-zinc-700">Created by:</span>
-                                  <p className="text-zinc-600">{preset.creator_user_id}</p>
-                                </div>
-                              )}
-                              <div>
-                                <span className="font-semibold text-zinc-700">Date:</span>
-                                <p className="text-zinc-600">{formatDate(preset.created_at)}</p>
-                              </div>
-                            </div>
-                            <div className="pt-2 border-t border-zinc-200 space-y-2">
-                              <div className="text-xs">
-                                <span className="font-mono text-zinc-600 text-xs break-all">Preset: {preset.preset_object_key}</span>
-                              </div>
-                              {preset.preview_object_key && (
-                                <div className="text-xs">
-                                  <span className="font-mono text-zinc-600 text-xs break-all">Preview: {preset.preview_object_key}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
                 ) : (
                   <div className="space-y-6 pt-4">
                     {presets.length === 0 ? (
-                      <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-8 border border-white/30 shadow-lg">
+                      <div className="bg-white/95 backdrop-blur-sm p-8 border border-white/30 shadow-lg">
                         <div className="text-center">
                           <span className="text-2xl font-bold text-zinc-800">
                             No presets found
@@ -744,50 +807,66 @@ export default function ProfilePage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         {presets.map((preset) => (
-                          <button
+                          <div
                             key={preset.id}
-                            onClick={() => setSelectedPresetId(preset.id)}
-                            className="w-full text-left bg-white/95 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:bg-white/100 transition"
+                            className="w-full bg-zinc-900 p-6 border border-zinc-700 shadow-lg"
                           >
-                            <div className="flex justify-between items-start mb-3">
-                              <div>
+                            {/* PRESET PREVIEW COMPONENT */}
+                            {parsedPresetById[preset.id] ? (
+                              <PresetViewer
+                                preset={parsedPresetById[preset.id]}
+                                presetName={preset.title || "Untitled Preset"}
+                                category={preset.source}
+                                uploadDate={preset.created_at ? new Date(preset.created_at) : undefined}
+                                compact
+                              />
+                            ) : (
+                              <div className="text-zinc-700">
                                 <div className="text-lg font-bold text-zinc-800">
                                   {preset.title || "Untitled Preset"}
                                 </div>
-                                {preset.description && (
-                                  <p className="text-sm text-zinc-600 mt-1 line-clamp-2">
-                                    {preset.description}
-                                  </p>
-                                )}
+                                <p className="text-sm text-zinc-600 mt-1">
+                                  {loadingPresetPreviews ? "Loading preset preview..." : "Preset preview unavailable"}
+                                </p>
                               </div>
-                              <div className="text-sm text-zinc-500">
-                                {formatDate(preset.created_at)}
-                              </div>
+                            )}
+
+                            <div className="mt-0 pt-4 border-t border-zinc-700 space-y-3">
+                              {preset.preview_object_key ? (
+                                <audio
+                                  controls
+                                  className="w-full"
+                                  style={{ height: "40px" }}
+                                  src={resolveStorageAssetUrl(preset.preview_object_key, "previews") || undefined}
+                                >
+                                  Audio element not supported on your browser.
+                                </audio>
+                              ) : (
+                                <div className="text-xs text-zinc-400 italic">No preview available</div>
+                              )}
                             </div>
-                            <div className="text-xs text-zinc-500 text-right">
-                              Click to preview →
-                            </div>
-                          </button>
+                          </div>
                         ))}
                       </div>
                     )}
                   </div>
                 )}
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* POSTS  */}
+        {/* POSTS - HANDLED BY BROWSER STRUCTURE FOR COMMENTS */}
         {showPostsPopup && (
           <div 
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
             onClick={closePostsPopup}
           >
             <div 
-              className="relative rounded-3xl max-w-2xl w-full mx-4 overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="relative max-w-2xl w-full mx-4 overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
               style={{
                 border: "2px solid rgba(255, 255, 255, 0.3)",
@@ -796,10 +875,6 @@ export default function ProfilePage() {
             >
               <div 
                 className="bg-black px-12 pt-12 pb-8"
-                style={{
-                  borderTopLeftRadius: '1.5rem',
-                  borderTopRightRadius: '1.5rem',
-                }}
               >
                 <button
                   onClick={closePostsPopup}
@@ -819,8 +894,7 @@ export default function ProfilePage() {
                   backgroundImage: "url('/bwire2.jpg')",
                   backgroundSize: "cover",
                   backgroundPosition: "center",
-                  borderBottomLeftRadius: '1.5rem',
-                  borderBottomRightRadius: '1.5rem',
+                  filter: "invert(1)",
                 }}
               >
                 {loadingPosts ? (
@@ -835,44 +909,116 @@ export default function ProfilePage() {
                 ) : (
                   <div className="space-y-6 pt-4">
                     {posts.length === 0 ? (
-                      <div className="bg-white/95 backdrop-blur-sm rounded-2xl p-8 border border-white/30 shadow-lg">
+                      <div className="bg-white/95 backdrop-blur-sm p-8 border border-white/30 shadow-lg">
                         <div className="text-center">
                           <span className="text-2xl font-bold text-zinc-800">
                             No posts found
                           </span>
                           <p className="text-lg text-zinc-600 mt-2">
-                            You haven't created any posts yet.
+                            No posts are associated with this account yet.
                           </p>
                         </div>
                       </div>
                     ) : (
                       <div className="space-y-4">
                         {posts.map((post) => (
-                          <div 
+                          <article
                             key={post.id}
-                            className="bg-white/95 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg hover:shadow-xl transition"
+                            className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
                           >
-                            <div className="flex justify-between items-start mb-3">
-                              <div className="flex-1">
-                                <div className="text-lg font-bold text-zinc-800">
-                                  {post.title}
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700">
+                                  <svg
+                                    className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                    />
+                                  </svg>
                                 </div>
-                                {post.description && (
-                                  <p className="text-sm text-zinc-600 mt-2 line-clamp-3">
-                                    {post.description}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="ml-4 text-right">
-                                <div className="text-xs font-semibold text-white bg-zinc-600 px-2 py-1 rounded-full">
-                                  {post.visibility}
+                                <div>
+                                  <div className="font-medium text-black dark:text-white">
+                                    {post.author?.username || userProfile?.username || "Anonymous"}
+                                  </div>
+                                  <div className="text-sm text-zinc-500 dark:text-zinc-400">
+                                    {formatDate(post.created_at)}
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                            <div className="text-xs text-zinc-500 mt-3 pt-3 border-t border-zinc-200">
-                              Created: {formatDate(post.created_at)}
+
+                            <h2 className="text-xl font-semibold text-black dark:text-white mb-2">
+                              {post.title}
+                            </h2>
+                            {post.description && (
+                              <p className="text-zinc-700 dark:text-zinc-300 mb-4">{post.description}</p>
+                            )}
+
+                            {(post.preview_url || post.preview_object_key) && (
+                              <div className="mb-4">
+                                <audio
+                                  controls
+                                  className="w-full h-10 rounded-lg"
+                                  src={post.preview_url || `${STORAGE_URL}${post.preview_object_key}`}
+                                >
+                                  Your browser does not support the audio element.
+                                </audio>
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                              <button
+                                onClick={() => handleVote(post.id, "up")}
+                                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                              >
+                                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M5 15l7-7 7 7"
+                                  />
+                                </svg>
+                              </button>
+
+                              <span className="text-sm font-medium text-black dark:text-white min-w-[2rem] text-center">
+                                {post.votes}
+                              </span>
+
+                              <button
+                                onClick={() => handleVote(post.id, "down")}
+                                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                              >
+                                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 9l-7 7-7-7"
+                                  />
+                                </svg>
+                              </button>
+
+                              <button className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition ml-4">
+                                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                                  />
+                                </svg>
+                                <span>Comments</span>
+                              </button>
                             </div>
-                          </div>
+                          </article>
                         ))}
                       </div>
                     )}
@@ -883,22 +1029,15 @@ export default function ProfilePage() {
           </div>
         )}
 
-        <div className="absolute inset-x-0 top-0 bottom-0 flex justify-center items-start pt-16">
-          <div className="h-full w-[420px] p-8 flex flex-col items-center">
+        <div className="absolute inset-x-0 top-0 bottom-0 flex flex-col items-start">
+          <div className="w-full bg-black pt-4 pb-4">
+            <h1 className="text-6xl font-extrabold text-white text-center">
+              My Profile
+            </h1>
+          </div>
 
-            {/* TITLE  */}
-            <div className="w-full bg-black/50 backdrop-blur-sm py-4 mb-2 rounded-lg">
-              <h1 className="text-6xl font-extrabold text-white text-center">
-                My Profile
-              </h1>
-            </div>
-
-            {/* USERNAME */}
-            <div className="w-full bg-black/50 backdrop-blur-sm py-3 mb-10 rounded-lg">
-              <h2 className="text-3xl font-bold text-white text-center">
-                {user.user_metadata?.username ?? user.email?.split("@")[0]}
-              </h2>
-            </div>
+          <div className="flex justify-center w-full">
+            <div className="h-full w-[420px] p-8 flex flex-col items-center">
 
             {/* PROFILE PICTURE  */}
             <div className="flex flex-col items-center mb-12">
@@ -926,12 +1065,12 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {/*HISTORY AND ACCOUNT INFORMATION */}
-            <div className="mb-10 grid grid-cols-2 gap-6 w-full">
+            {/* HISTORY, ACCOUNT INFORMATION, PREFERENCES AND POSTS BUTTONS*/}
+            <div className="flex flex-col gap-6 w-full">
               <button
                 onClick={handleHistoryClick}
                 className="
-                  group relative rounded-3xl px-8 py-6
+                  group relative px-8 py-6
                   border-2 border-white/30
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
@@ -945,7 +1084,7 @@ export default function ProfilePage() {
               <button
                 onClick={handleAccountClick}
                 className="
-                  group relative rounded-3xl px-8 py-6
+                  group relative px-8 py-6
                   border-2 border-white/30
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
@@ -956,14 +1095,10 @@ export default function ProfilePage() {
                   Account Information
                 </span>
               </button>
-            </div>
-
-            {/* PREFERENCES AND POSTS */}
-            <div className="flex flex-col gap-6 w-full">
               <button
                 onClick={handlePreferencesClick}
                 className="
-                  group rounded-2xl border px-8 py-6
+                  group border px-8 py-6
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
                   active:scale-95
@@ -976,7 +1111,7 @@ export default function ProfilePage() {
               <button
                 onClick={handlePostsClick}
                 className="
-                  group rounded-2xl border px-8 py-6
+                  group border px-8 py-6
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
                   active:scale-95
@@ -991,6 +1126,7 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }
