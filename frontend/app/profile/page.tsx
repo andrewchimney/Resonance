@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AudioNotePlayer from "../components/AudioNotePlayer";
 import { Comments } from "../components/Comments/Comments";
+import { PresetViewer, parseVitalPreset } from "../components/PresetViewer";
+import type { ParsedPreset } from "../components/PresetViewer/types";
 
 interface UserProfile {
   username: string | null;
@@ -73,6 +75,10 @@ export default function ProfilePage() {
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [creatorUsernames, setCreatorUsernames] = useState<Record<string, string>>({});
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
+  const [expandedHistoryPresetId, setExpandedHistoryPresetId] = useState<string | null>(null);
+  const [expandedPostPresetId, setExpandedPostPresetId] = useState<string | null>(null);
+  const [historyPresetDataCache, setHistoryPresetDataCache] = useState<Record<string, ParsedPreset | "loading" | "error">>({});
+  const [postPresetDataCache, setPostPresetDataCache] = useState<Record<string, ParsedPreset | "loading" | "error">>({});
 
   const [searchUsername, setSearchUsername] = useState("");
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -483,15 +489,67 @@ export default function ProfilePage() {
 
   const closeHistoryPopup = () => {
     setShowHistoryPopup(false);
+    setExpandedHistoryPresetId(null);
   };
 
   const closePostsPopup = () => {
     setShowPostsPopup(false);
     setExpandedPostId(null);
+    setExpandedPostPresetId(null);
   };
 
   const handleToggleComments = (postId: string) => {
     setExpandedPostId((prev) => (prev === postId ? null : postId));
+  };
+
+  const handleToggleHistoryPresetDetails = async (savedPresetId: string) => {
+    if (!user) return;
+
+    if (expandedHistoryPresetId === savedPresetId) {
+      setExpandedHistoryPresetId(null);
+      return;
+    }
+
+    setExpandedHistoryPresetId(savedPresetId);
+
+    if (historyPresetDataCache[savedPresetId]) return;
+
+    setHistoryPresetDataCache((prev) => ({ ...prev, [savedPresetId]: "loading" }));
+    try {
+      const baseApi = API_URL ?? "http://localhost:8000/api";
+      const res = await fetch(`${baseApi}/saved-presets/${user.id}/${savedPresetId}/data`);
+      if (!res.ok) throw new Error("Failed to fetch preset");
+      const rawPreset = await res.json();
+      const parsed = parseVitalPreset(rawPreset);
+      setHistoryPresetDataCache((prev) => ({ ...prev, [savedPresetId]: parsed }));
+    } catch {
+      setHistoryPresetDataCache((prev) => ({ ...prev, [savedPresetId]: "error" }));
+    }
+  };
+
+  const handleTogglePostPresetDetails = async (post: PostData) => {
+    if (!post.preset_id) return;
+
+    if (expandedPostPresetId === post.id) {
+      setExpandedPostPresetId(null);
+      return;
+    }
+
+    setExpandedPostPresetId(post.id);
+
+    if (postPresetDataCache[post.preset_id]) return;
+
+    setPostPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: "loading" }));
+    try {
+      const baseApi = API_URL ?? "http://localhost:8000/api";
+      const res = await fetch(`${baseApi}/presets/${post.preset_id}/data`);
+      if (!res.ok) throw new Error("Failed to fetch preset");
+      const rawPreset = await res.json();
+      const parsed = parseVitalPreset(rawPreset);
+      setPostPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: parsed }));
+    } catch {
+      setPostPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: "error" }));
+    }
   };
 
   async function handleUsernameSearch(e: React.FormEvent) {
@@ -917,17 +975,55 @@ export default function ProfilePage() {
                                       audioPath={previewUrl}
                                       buttonText="Test other notes"
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => removeSavedPreset(preset.id)}
-                                      className="rounded-lg border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
-                                    >
-                                      Remove
-                                    </button>
                                   </div>
                                 </div>
                               ) : (
                                 <div className="text-xs text-zinc-400 italic">No preview available</div>
+                              )}
+
+                              <div className="mt-2 flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleHistoryPresetDetails(preset.id)}
+                                  className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                                    expandedHistoryPresetId === preset.id
+                                      ? "border-zinc-400 bg-zinc-700 text-white"
+                                      : "border-zinc-600 text-zinc-200 hover:bg-zinc-800"
+                                  }`}
+                                >
+                                  {expandedHistoryPresetId === preset.id ? "Hide Preset" : "View Preset"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeSavedPreset(preset.id)}
+                                  className="rounded-lg border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+
+                              {expandedHistoryPresetId === preset.id && (
+                                <div className="mt-4 pt-4 border-t border-zinc-700">
+                                  {historyPresetDataCache[preset.id] === "loading" && (
+                                    <div className="flex items-center justify-center py-6 text-sm text-zinc-300">
+                                      Loading preset details...
+                                    </div>
+                                  )}
+                                  {historyPresetDataCache[preset.id] === "error" && (
+                                    <div className="flex items-center justify-center py-6 text-sm text-red-400">
+                                      Failed to load preset details.
+                                    </div>
+                                  )}
+                                  {historyPresetDataCache[preset.id] &&
+                                    historyPresetDataCache[preset.id] !== "loading" &&
+                                    historyPresetDataCache[preset.id] !== "error" && (
+                                      <PresetViewer
+                                        preset={historyPresetDataCache[preset.id] as ParsedPreset}
+                                        presetName={preset.title}
+                                        compact
+                                      />
+                                    )}
+                                </div>
                               )}
                             </div>
                           );
@@ -1107,7 +1203,62 @@ export default function ProfilePage() {
                                 </svg>
                                 <span>{expandedPostId === post.id ? "Hide Comments" : "Comments"}</span>
                               </button>
+
+                              {post.preset_id && (
+                                <button
+                                  onClick={() => handleTogglePostPresetDetails(post)}
+                                  className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer ${
+                                    expandedPostPresetId === post.id
+                                      ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
+                                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                  }`}
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                                    />
+                                  </svg>
+                                  <span className="flex items-center gap-1">
+                                    {expandedPostPresetId === post.id ? "Hide Preset" : "View Preset"}
+                                    <svg
+                                      className={`h-3.5 w-3.5 transition-transform ${expandedPostPresetId === post.id ? "rotate-180" : ""}`}
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </span>
+                                </button>
+                              )}
                             </div>
+
+                            {expandedPostPresetId === post.id && post.preset_id && (
+                              <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                                {postPresetDataCache[post.preset_id] === "loading" && (
+                                  <div className="flex items-center justify-center py-6 text-sm text-zinc-500 dark:text-zinc-400">
+                                    Loading preset details...
+                                  </div>
+                                )}
+                                {postPresetDataCache[post.preset_id] === "error" && (
+                                  <div className="flex items-center justify-center py-6 text-sm text-red-500 dark:text-red-400">
+                                    Failed to load preset details.
+                                  </div>
+                                )}
+                                {postPresetDataCache[post.preset_id] &&
+                                  postPresetDataCache[post.preset_id] !== "loading" &&
+                                  postPresetDataCache[post.preset_id] !== "error" && (
+                                    <PresetViewer
+                                      preset={postPresetDataCache[post.preset_id] as ParsedPreset}
+                                      presetName={post.title}
+                                      compact
+                                    />
+                                  )}
+                              </div>
+                            )}
 
                             {expandedPostId === post.id && (
                               <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
