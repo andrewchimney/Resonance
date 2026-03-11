@@ -2,14 +2,15 @@
 
 // Main components
 export { default as PresetViewer } from './PresetViewer';
-export { default as PresetModificator } from './PresetModificator';
+export { default as PresetDetails } from './PresetDetails';
+export { default as PresetModificator } from './PresetModificator'; // backward compat
 
 // Parser
 export { parseVitalPreset } from './parsePreset';
 
 // Types
-export type { 
-  ParsedPreset, 
+export type {
+  ParsedPreset,
   RawVitalPreset,
   OscillatorInfo,
   WavetableInfo,
@@ -21,12 +22,12 @@ export type {
   MacroInfo,
 } from './types';
 
-// Reusable sub-components from PresetModificator
-export { 
-  EnvelopeGraph, 
-  LFOWaveform, 
-  Knob, 
+// Reusable sub-components from PresetDetails
+export {
+  EnvelopeGraph,
+  LFOWaveform,
+  Knob,
   StatusIndicator,
   OscillatorSection,
   FilterSection,
-} from './PresetModificator';
+} from './PresetDetails';
