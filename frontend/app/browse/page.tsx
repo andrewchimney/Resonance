@@ -302,7 +302,7 @@ export default function BrowsePage() {
       if (!res.ok) throw new Error("Failed to create post");
 
       setShowPostForm(false);
-      setPostFormValues({ title: "", description: "", preset_id: null, uploaded_file: null });
+      setPostFormValues({ title: "", description: "", preset_id: null, uploaded_file: null, postAnonymously: false });
       // Refresh posts
       const postsRes = await fetch(`${API_URL}/posts`);
       if (postsRes.ok) {
