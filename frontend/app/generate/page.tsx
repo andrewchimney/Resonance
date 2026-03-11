@@ -410,7 +410,7 @@ export default function GeneratePage() {
             <div className="fixed right-6 top-16 z-50 w-80">
               <LoginPanel
                   onClose={() => setShowAuthPanel(false)}
-                  onLoginSuccess={(newUser: User) => {
+                  onLoginSuccess={user ? undefined : (newUser: User) => {
                     setUser(newUser);
                     setShowAuthPanel(false);
                   }}
