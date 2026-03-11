@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import AudioNotePlayer from "../../components/AudioNotePlayer";
 import { Comments } from "../../components/Comments/Comments";
+import { PresetViewer, parseVitalPreset } from "../../components/PresetViewer";
+import type { ParsedPreset } from "../../components/PresetViewer/types";
 
 interface PublicUser {
   id: string;
@@ -44,6 +46,9 @@ export default function PublicProfilePage() {
   const [showCount, setShowCount] = useState(INITIAL_SHOW);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
+  const scrollRestoreRef = useRef<number | null>(null);
+  const [expandedPresetPostId, setExpandedPresetPostId] = useState<string | null>(null);
+  const [presetDataCache, setPresetDataCache] = useState<Record<string, ParsedPreset | "loading" | "error">>({});
   const [savingPresetIds, setSavingPresetIds] = useState<Set<string>>(new Set());
   const [savedPresetIds, setSavedPresetIds] = useState<Set<string>>(new Set());
 
@@ -120,6 +125,23 @@ export default function PublicProfilePage() {
     }
   }
 
+  async function handleTogglePresetDetails(post: Post) {
+    if (!post.preset_id) return;
+    if (expandedPresetPostId === post.id) { setExpandedPresetPostId(null); return; }
+    setExpandedPresetPostId(post.id);
+    if (presetDataCache[post.preset_id]) return;
+    setPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: "loading" }));
+    try {
+      const res = await fetch(`${API_URL}/presets/${post.preset_id}/data`);
+      if (!res.ok) throw new Error("Failed to fetch preset");
+      const rawPreset = await res.json();
+      const parsed = parseVitalPreset(rawPreset);
+      setPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: parsed }));
+    } catch {
+      setPresetDataCache((prev) => ({ ...prev, [post.preset_id!]: "error" }));
+    }
+  }
+
   async function handleSavePreset(presetId: string | null, postOwnerUserId: string | null) {
     if (!presetId || !currentUser || !supabase) return;
     if (savingPresetIds.has(presetId) || savedPresetIds.has(presetId)) return;
@@ -181,6 +203,13 @@ export default function PublicProfilePage() {
     }
   };
 
+  useEffect(() => {
+    if (scrollRestoreRef.current !== null) {
+      window.scrollTo(0, scrollRestoreRef.current);
+      scrollRestoreRef.current = null;
+    }
+  }, [showCount]);
+
   const visiblePosts = posts.slice(0, showCount);
   const hasMore = posts.length > showCount;
 
@@ -213,7 +242,7 @@ export default function PublicProfilePage() {
   return (
     <div className="min-h-screen flex flex-col font-sans">
       {/* NAVBAR */}
-      <nav className="sticky top-0 z-50 h-16 flex items-center justify-between gap-4 border-b border-zinc-200 bg-white/90 px-6 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
+      <nav className="sticky top-0 z-50 h-16 grid grid-cols-3 items-center border-b border-zinc-200 bg-white/90 px-6 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
         <div
           className="cursor-pointer text-xl font-extrabold shrink-0"
           onClick={() => router.push("/")}
@@ -221,7 +250,7 @@ export default function PublicProfilePage() {
           Resonance
         </div>
 
-        <form onSubmit={handleUsernameSearch} className="flex flex-1 max-w-sm flex-col gap-0.5">
+        <form onSubmit={handleUsernameSearch} className="flex flex-col gap-0.5 mx-auto w-full max-w-sm">
           <div className="flex gap-2">
             <input
               type="text"
@@ -241,7 +270,7 @@ export default function PublicProfilePage() {
           {searchError && <p className="text-xs text-red-500">{searchError}</p>}
         </form>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 justify-end">
           <button onClick={() => router.push("/browse")} className="text-sm font-semibold hover:underline shrink-0">Browse</button>
           <button onClick={() => router.push("/generate")} className="text-sm font-semibold hover:underline shrink-0">Generate</button>
           {currentUser && (
@@ -404,7 +433,53 @@ export default function PublicProfilePage() {
                               ? "Saved"
                               : "Save"}
                         </button>
+
+                        {/* View Preset */}
+                        {post.preset_id && (
+                          <button
+                            onClick={() => handleTogglePresetDetails(post)}
+                            className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer ${
+                              expandedPresetPostId === post.id
+                                ? "bg-zinc-100 text-black dark:bg-zinc-800 dark:text-white"
+                                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                            </svg>
+                            <span className="flex items-center gap-1">
+                              {expandedPresetPostId === post.id ? "Hide Preset" : "View Preset"}
+                              <svg
+                                className={`h-3.5 w-3.5 transition-transform ${expandedPresetPostId === post.id ? "rotate-180" : ""}`}
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </span>
+                          </button>
+                        )}
                       </div>
+
+                      {/* Preset Details */}
+                      {expandedPresetPostId === post.id && post.preset_id && (
+                        <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+                          {presetDataCache[post.preset_id] === "loading" && (
+                            <div className="flex items-center justify-center py-6 text-sm text-zinc-500 dark:text-zinc-400">Loading preset details...</div>
+                          )}
+                          {presetDataCache[post.preset_id] === "error" && (
+                            <div className="flex items-center justify-center py-6 text-sm text-red-500 dark:text-red-400">Failed to load preset details.</div>
+                          )}
+                          {presetDataCache[post.preset_id] &&
+                            presetDataCache[post.preset_id] !== "loading" &&
+                            presetDataCache[post.preset_id] !== "error" && (
+                              <PresetViewer
+                                preset={presetDataCache[post.preset_id] as ParsedPreset}
+                                presetName={post.title}
+                                compact
+                              />
+                            )}
+                        </div>
+                      )}
 
                       {/* Comment Section */}
                       {expandedPostId === post.id && (
@@ -420,7 +495,10 @@ export default function PublicProfilePage() {
                 {hasMore && (
                   <div className="flex justify-center mt-6">
                     <button
-                      onClick={() => setShowCount((c) => c + 3)}
+                      onClick={() => {
+                        scrollRestoreRef.current = window.scrollY;
+                        setShowCount((c) => c + 3);
+                      }}
                       className="flex items-center gap-2 px-6 py-3 bg-black/50 backdrop-blur-sm border border-white/20 text-white rounded-full hover:bg-black/70 transition font-semibold"
                     >
                       Show more
