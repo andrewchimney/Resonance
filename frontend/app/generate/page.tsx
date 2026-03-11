@@ -407,15 +407,23 @@ export default function GeneratePage() {
         />
 
         {showAuthPanel && (
-            <div className="fixed right-6 top-16 z-50 w-80">
-              <LoginPanel
-                  onClose={() => setShowAuthPanel(false)}
-                  onLoginSuccess={(newUser: User) => {
-                    setUser(newUser);
-                    setShowAuthPanel(false);
-                  }}
+            <>
+              {/* Invisible backdrop — clicking outside the panel closes it */}
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowAuthPanel(false)}
               />
-            </div>
+              <div className="fixed right-6 top-19 z-50 w-80">
+                <LoginPanel
+                    user={user}
+                    onClose={() => setShowAuthPanel(false)}
+                    onLoginSuccess={(newUser: User) => {
+                      setUser(newUser);
+                      setShowAuthPanel(false);
+                    }}
+                />
+              </div>
+            </>
         )}
 
 

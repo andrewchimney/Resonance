@@ -9,6 +9,8 @@ import PostForm, { type PostFormValues } from "../components/CreatePost/PostForm
 import AudioNotePlayer from "../components/AudioNotePlayer";
 import { PresetViewer, parseVitalPreset } from "../components/PresetViewer";
 import type { ParsedPreset } from "../components/PresetViewer/types";
+import Navbar from "../components/Navbar";
+import LoginPanel from "../components/Authentication/LoginPanel";
 interface Post {
   id: string;
   title: string;
@@ -45,8 +47,6 @@ export default function BrowsePage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,32 +228,6 @@ export default function BrowsePage() {
     return `${diffYears} yr${diffYears === 1 ? "" : "s"} ago`;
   };
 
-  const handleDiscordLogin = async () => {
-    if (!supabase) {
-      setAuthError("Supabase not configured (set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY).");
-      return;
-    }
-
-    setAuthError(null);
-    setAuthLoading(true);
-
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "discord",
-      options: {
-        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined,
-      },
-    });
-
-    setAuthLoading(false);
-    if (error) setAuthError(error.message);
-  };
-
-  const handleSignOut = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
-    setShowAuthPanel(false);
-  };
-
   const handleCreatePostClick = () => {
     if (user) {
       setShowPostForm(true);
@@ -319,130 +293,34 @@ export default function BrowsePage() {
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 font-sans dark:bg-black">
       {/* Navbar */}
-      <nav className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-black">
-        {/* Logo/Brand */}
-        <Link href="/" className="text-xl font-semibold text-black dark:text-white hover:opacity-80 transition">
-          Resonance
-        </Link>
+      <Navbar
+        user={user}
+        onLoginClick={() => setShowAuthPanel(true)}
+        onProfileClick={() => setShowAuthPanel((open) => !open)}
+        onCreatePost={handleCreatePostClick}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
 
-        {/* Search Box */}
-        <div className="flex-1 mx-8 max-w-2xl">
-          <input
-            type="text"
-            placeholder="Search posts..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-2 text-sm text-black placeholder-zinc-500 focus:border-zinc-400 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-400"
+      {showAuthPanel && (
+        <>
+          {/* Invisible backdrop — clicking outside the panel closes it */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setShowAuthPanel(false)}
           />
-        </div>
-
-        {/* Generate and Profile */}
-        <div className="relative flex items-center gap-6">
-          <Link href="/generate" className="text-sm font-medium text-black transition-colors hover:text-zinc-600 hover:underline dark:text-white dark:hover:text-zinc-300 cursor-pointer">
-            Generate
-          </Link>
-          {user ? (
-            <button
-              aria-label="Profile"
-              onClick={() => setShowAuthPanel(true)}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 transition-colors hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 cursor-pointer"
-            >
-              {user.user_metadata?.avatar_url ? (
-                <img
-                  src={user.user_metadata.avatar_url}
-                  alt={user.email || "User"}
-                  className="h-full w-full object-cover rounded-full"
-                />
-              ) : (
-                <svg
-                  className="h-5 w-5 text-zinc-600 dark:text-zinc-300"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                  />
-                </svg>
-              )}
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowAuthPanel(true)}
-              className="text-sm font-medium text-black transition-colors hover:text-zinc-600 dark:text-white dark:hover:text-zinc-300 cursor-pointer"
-            >
-              Log In
-            </button>
-          )}
-
-          <button
-            onClick={handleCreatePostClick}
-            title="Create a post"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 transition-colors hover:bg-zinc-800 dark:bg-zinc-600 dark:hover:bg-zinc-500 cursor-pointer"
-          >
-            <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-
-          {showAuthPanel && (
-            <div className="fixed right-6 top-16 z-50 w-80 rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl shadow-zinc-900/10 dark:border-zinc-800 dark:bg-zinc-900">
-              {!supabase && (
-                <div className="text-sm text-red-600 dark:text-red-400">
-                  Supabase env vars missing. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.
-                </div>
-              )}
-
-              {supabase && (
-                <>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-sm font-semibold text-black dark:text-white">Account</div>
-                    <button
-                      className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-                      onClick={() => setShowAuthPanel(false)}
-                    >
-                      Close
-                    </button>
-                  </div>
-                  {user ? (
-                    <div className="space-y-3">
-                      <button
-                        onClick={() => router.push("/profile")}
-                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 w-full"
-                      >
-                        Signed in as <span className="font-medium">{user.email}</span>
-                      </button>
-                      <button
-                        onClick={handleSignOut}
-                        className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-                      >
-                        Sign out
-                      </button>
-                    </div>
-                  ) : (
-
-                    <div className="space-y-3">
-                      <div className="text-sm text-zinc-700 dark:text-zinc-200">Sign in to continue</div>
-                      <button
-                        onClick={handleDiscordLogin}
-                        disabled={authLoading}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
-                      >
-                        <span aria-hidden>💬</span>
-                        {authLoading ? "Redirecting..." : "Continue with Discord"}
-                      </button>
-                      {authError && <div className="text-xs text-red-600 dark:text-red-400">{authError}</div>}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </nav>
+          <div className="fixed right-6 top-19 z-50 w-80">
+            <LoginPanel
+              user={user}
+              onClose={() => setShowAuthPanel(false)}
+              onLoginSuccess={(newUser: User) => {
+                setUser(newUser);
+                setShowAuthPanel(false);
+              }}
+            />
+          </div>
+        </>
+      )}
 
       <CreatePostDialog
         isOpen={showCreatePost}

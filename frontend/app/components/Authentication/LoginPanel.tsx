@@ -1,27 +1,44 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 
 /**
  * Props for the LoginPanel Component:
+ * - user: The currently authenticated user from the parent (avoids a flash of logged-out content).
  * - onLoginSuccess: Optional callback function that runs when a user successfully logs in
  * - onClose: Optional callback function that runs when the login panel is closed
  */
 interface LoginPanelProps {
+    user?: User | null;
     onLoginSuccess?: (user: User) => void;
     onClose?: () => void;
 }
 
 export default function LoginPanel({
+    user: userProp,
     onLoginSuccess,
     onClose,
 }: LoginPanelProps) {
     // React hooks to track the component state
 
-    // Store the current logged-in user (null if not logged in)
-    const [user, setUser] = useState<User | null>(null);
+    // Store the current logged-in user. Seed from the parent prop so the correct
+    // view renders immediately without waiting for getSession() to resolve.
+    const [user, setUser] = useState<User | null>(userProp ?? null);
+
+    // Remember whether the user was already logged in when the panel opened.
+    // This prevents onLoginSuccess (which closes the panel) from firing for
+    // the INITIAL_SESSION / SIGNED_IN event that Supabase emits on first
+    // subscription — which would cause the panel to flicker closed immediately.
+    const wasLoggedInOnOpenRef = useRef<boolean>(userProp != null);
+
+    // Keep a stable ref to onLoginSuccess so we can remove it from the
+    // useEffect dependency array and avoid re-subscribing on every parent render.
+    const onLoginSuccessRef = useRef(onLoginSuccess);
+    useEffect(() => {
+        onLoginSuccessRef.current = onLoginSuccess;
+    });
 
     // Store any authentication error messages (null if no error)
     const [authError, setAuthError] = useState<string | null>(null);
@@ -90,9 +107,12 @@ export default function LoginPanel({
             // If a session exists, set user as logged-in, otherwise set user to null (logged-out)
             setUser(session?.user ?? null);
 
-            // Only notify parent on an actual new sign-in, not on the initial session restore
-            if (event === "SIGNED_IN" && session?.user && onLoginSuccess) {
-                onLoginSuccess(session.user);
+            // Only notify parent on an actual new sign-in, not on the initial session
+            // restore that fires when the subscription is first created. Without the
+            // wasLoggedInOnOpenRef guard, this would immediately close the panel
+            // whenever a logged-in user opens it (the flicker bug).
+            if (event === "SIGNED_IN" && session?.user && !wasLoggedInOnOpenRef.current) {
+                onLoginSuccessRef.current?.(session.user);
             }
         });
 
@@ -107,8 +127,9 @@ export default function LoginPanel({
             // This will stop listening for authentication state changes
             listener.subscription.unsubscribe(); 
         };
-        // This will re-run if the Supabase client or callback changes
-    }, [supabase, onLoginSuccess]); 
+        // Only re-run if the Supabase client changes. onLoginSuccess is accessed
+        // via a ref so it doesn't need to be a dependency here.
+    }, [supabase]);
 
     /**
      * Discord Login Handler
@@ -203,7 +224,7 @@ export default function LoginPanel({
                 
                 {/* Close button */}
                 <button
-                    className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 cursor-pointer"
                     onClick={onClose}
                 >
                     Close
@@ -215,19 +236,23 @@ export default function LoginPanel({
             {/* Logged-in state: Display when the user is logged in */}
             {user? (
                 <div className="space-y-3">
-                    {/* Profile button: shows the user's Discord email */}
-                    {/* When clicked, this will redirect the user to the profile page */}
+                    {/* Email display — non-interactive, just shows who is signed in */}
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100">
+                        Signed in as <span className="font-medium">{user.email}</span>
+                    </div>
+
+                    {/* View Profile button */}
                     <button
                         onClick={() => router.push("/profile")}
-                        className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 w-full"
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700 cursor-pointer"
                     >
-                        Signed in as <span className="font-medium">{user.email}</span>
+                        View Profile
                     </button>
 
                     {/* Sign out button */}
                     <button
                         onClick={handleSignOut}
-                        className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                        className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer"
                     >
                         Sign out
                     </button>
@@ -243,7 +268,7 @@ export default function LoginPanel({
                         onClick={handleDiscordLogin}
                         // Disable the button while login is in progress to prevent multiple clicks
                         disabled={authLoading}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700"
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700 cursor-pointer"
                     >
                         {/* Discord emoji icon */}
                         <span aria-hidden>💬</span>
