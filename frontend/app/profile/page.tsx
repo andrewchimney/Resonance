@@ -636,7 +636,7 @@ export default function ProfilePage() {
             <button
               type="submit"
               disabled={searchLoading}
-              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-zinc-900 text-white hover:bg-zinc-700 transition disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200 shrink-0"
+              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-zinc-900 text-white hover:bg-zinc-700 transition disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200 shrink-0 cursor-pointer"
             >
               {searchLoading ? "..." : "Search"}
             </button>
@@ -647,14 +647,14 @@ export default function ProfilePage() {
         <div className="flex items-center gap-6">
           <button
             onClick={() => router.push("/browse")}
-            className="text-sm font-semibold hover:underline shrink-0"
+            className="text-sm font-semibold hover:underline shrink-0 cursor-pointer"
           >
             Browse
           </button>
 
           <button
             onClick={() => router.push("/generate")}
-            className="text-sm font-semibold hover:underline shrink-0"
+            className="text-sm font-semibold hover:underline shrink-0 cursor-pointer"
           >
             Generate
           </button>
@@ -689,7 +689,7 @@ export default function ProfilePage() {
               >
                 <button
                   onClick={closeAccountPopup}
-                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200"
+                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200 cursor-pointer"
                 >
                   ×
                 </button>
@@ -735,7 +735,7 @@ export default function ProfilePage() {
                             <button
                               onClick={saveUsername}
                               disabled={savingUsername || !newUsername.trim()}
-                              className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-colors"
+                              className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-colors cursor-pointer"
                             >
                               {savingUsername ? "Saving..." : "Save"}
                             </button>
@@ -744,7 +744,7 @@ export default function ProfilePage() {
                                 setEditingUsername(false);
                                 setNewUsername(userProfile?.username || "");
                               }}
-                              className="flex-1 px-4 py-3 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-semibold transition-colors"
+                              className="flex-1 px-4 py-3 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-semibold transition-colors cursor-pointer"
                             >
                               Cancel
                             </button>
@@ -757,7 +757,7 @@ export default function ProfilePage() {
                           </div>
                           <button
                             onClick={() => setEditingUsername(true)}
-                            className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold transition-colors"
+                            className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold transition-colors cursor-pointer"
                           >
                             Edit
                           </button>
@@ -809,7 +809,7 @@ export default function ProfilePage() {
                 {/* CLOSE */}
                 <button
                   onClick={closePreferencesPopup}
-                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200"
+                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200 cursor-pointer"
                 >
                   ×
                 </button>
@@ -854,7 +854,7 @@ export default function ProfilePage() {
                         <button
                           onClick={savePreferences}
                           disabled={savingPreferences}
-                          className="border border-zinc-300 bg-white px-8 py-3 text-base font-medium text-black transition hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="border border-zinc-300 bg-white px-8 py-3 text-base font-medium text-black transition hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                         >
                           {savingPreferences ? "Saving..." : "Save"}
                         </button>
@@ -886,7 +886,7 @@ export default function ProfilePage() {
               >
                 <button
                   onClick={closeHistoryPopup}
-                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200"
+                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200 cursor-pointer"
                 >
                   ×
                 </button>
@@ -985,7 +985,7 @@ export default function ProfilePage() {
                                 <button
                                   type="button"
                                   onClick={() => handleToggleHistoryPresetDetails(preset.id)}
-                                  className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                                  className={`rounded-lg border px-3 py-1.5 text-sm transition cursor-pointer ${
                                     expandedHistoryPresetId === preset.id
                                       ? "border-zinc-400 bg-zinc-700 text-white"
                                       : "border-zinc-600 text-zinc-200 hover:bg-zinc-800"
@@ -996,7 +996,7 @@ export default function ProfilePage() {
                                 <button
                                   type="button"
                                   onClick={() => removeSavedPreset(preset.id)}
-                                  className="rounded-lg border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
+                                  className="rounded-lg border border-zinc-600 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 cursor-pointer"
                                 >
                                   Remove
                                 </button>
@@ -1057,7 +1057,7 @@ export default function ProfilePage() {
               >
                 <button
                   onClick={closePostsPopup}
-                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200"
+                  className="absolute top-6 right-6 text-3xl text-white/90 hover:text-white transition-colors duration-200 cursor-pointer"
                 >
                   ×
                 </button>
@@ -1155,7 +1155,7 @@ export default function ProfilePage() {
                             <div className="flex items-center gap-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
                               <button
                                 onClick={() => handleVote(post.id, "up")}
-                                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                               >
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path
@@ -1173,7 +1173,7 @@ export default function ProfilePage() {
 
                               <button
                                 onClick={() => handleVote(post.id, "down")}
-                                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                               >
                                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path
@@ -1321,7 +1321,7 @@ export default function ProfilePage() {
                   border-2 border-white/30
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
-                  active:scale-95
+                  active:scale-95 cursor-pointer
                 "
               >
                 <span className="text-2xl font-extrabold text-center block group-hover:backdrop-invert group-hover:mix-blend-difference">
@@ -1335,7 +1335,7 @@ export default function ProfilePage() {
                   border-2 border-white/30
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
-                  active:scale-95
+                  active:scale-95 cursor-pointer
                 "
               >
                 <span className="text-xl font-extrabold text-center block leading-tight group-hover:backdrop-invert group-hover:mix-blend-difference">
@@ -1348,7 +1348,7 @@ export default function ProfilePage() {
                   group border px-8 py-6
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
-                  active:scale-95
+                  active:scale-95 cursor-pointer
                 "
               >
                 <span className="text-xl font-extrabold text-center block group-hover:backdrop-invert group-hover:mix-blend-difference">
@@ -1361,7 +1361,7 @@ export default function ProfilePage() {
                   group border px-8 py-6
                   backdrop-invert mix-blend-difference
                   transition-all duration-300
-                  active:scale-95
+                  active:scale-95 cursor-pointer
                 "
               >
                 <span className="text-xl font-extrabold text-center block group-hover:backdrop-invert group-hover:mix-blend-difference">

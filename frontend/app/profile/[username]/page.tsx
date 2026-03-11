@@ -231,7 +231,7 @@ export default function PublicProfilePage() {
           <p className="text-white/60 mb-6">@{username} doesn&apos;t exist.</p>
           <button
             onClick={() => router.back()}
-            className="px-6 py-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition"
+            className="px-6 py-2 rounded-xl bg-white/10 text-white hover:bg-white/20 transition cursor-pointer"
           >
             Go back
           </button>
@@ -262,7 +262,7 @@ export default function PublicProfilePage() {
             <button
               type="submit"
               disabled={searchLoading}
-              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-zinc-900 text-white hover:bg-zinc-700 transition disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200 shrink-0"
+              className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-zinc-900 text-white hover:bg-zinc-700 transition disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200 shrink-0 cursor-pointer"
             >
               {searchLoading ? "..." : "Search"}
             </button>
@@ -271,10 +271,10 @@ export default function PublicProfilePage() {
         </form>
 
         <div className="flex items-center gap-6 justify-end">
-          <button onClick={() => router.push("/browse")} className="text-sm font-semibold hover:underline shrink-0">Browse</button>
-          <button onClick={() => router.push("/generate")} className="text-sm font-semibold hover:underline shrink-0">Generate</button>
+          <button onClick={() => router.push("/browse")} className="text-sm font-semibold hover:underline shrink-0 cursor-pointer">Browse</button>
+          <button onClick={() => router.push("/generate")} className="text-sm font-semibold hover:underline shrink-0 cursor-pointer">Generate</button>
           {currentUser && (
-            <button onClick={() => router.push("/profile")} className="text-sm font-semibold hover:underline shrink-0">My Profile</button>
+            <button onClick={() => router.push("/profile")} className="text-sm font-semibold hover:underline shrink-0 cursor-pointer">My Profile</button>
           )}
         </div>
       </nav>
@@ -380,7 +380,7 @@ export default function PublicProfilePage() {
                         {/* Upvote */}
                         <button
                           onClick={() => handleVote(post.id, "up")}
-                          className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                         >
                           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -392,7 +392,7 @@ export default function PublicProfilePage() {
                         {/* Downvote */}
                         <button
                           onClick={() => handleVote(post.id, "down")}
-                          className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                         >
                           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -499,7 +499,7 @@ export default function PublicProfilePage() {
                         scrollRestoreRef.current = window.scrollY;
                         setShowCount((c) => c + 3);
                       }}
-                      className="flex items-center gap-2 px-6 py-3 bg-black/50 backdrop-blur-sm border border-white/20 text-white rounded-full hover:bg-black/70 transition font-semibold"
+                      className="flex items-center gap-2 px-6 py-3 bg-black/50 backdrop-blur-sm border border-white/20 text-white rounded-full hover:bg-black/70 transition font-semibold cursor-pointer"
                     >
                       Show more
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -169,8 +169,10 @@ export default function LoginPanel({
         // This will use Discord as the login provider
         provider: "discord",
         options: {
-            // After Discord login, this will redirect the user back to the current page
-            redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+        // After Discord login, redirect back to the page the user was on
+            redirectTo: typeof window !== "undefined"
+                ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(window.location.pathname)}`
+                : undefined,
         },
     });
 

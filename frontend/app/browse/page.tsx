@@ -386,7 +386,7 @@ export default function BrowsePage() {
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-black dark:text-white">Create a Post</h2>
-              <button onClick={() => setShowPostForm(false)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">✕</button>
+              <button onClick={() => setShowPostForm(false)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer">✕</button>
             </div>
             <PostForm
               presets={[]}
@@ -425,7 +425,7 @@ export default function BrowsePage() {
                   }
                   setFeedType(tab.key);
                 }}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${feedType === tab.key
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition cursor-pointer ${feedType === tab.key
                   ? "bg-black text-white dark:bg-white dark:text-black"
                   : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   }`}
@@ -535,7 +535,7 @@ export default function BrowsePage() {
                     {/* Upvote Button */}
                     <button
                       onClick={() => handleVote(post.id, "up")}
-                      className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     >
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
@@ -555,7 +555,7 @@ export default function BrowsePage() {
                     {/* Downvote Button */}
                     <button
                       onClick={() => handleVote(post.id, "down")}
-                      className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition cursor-pointer text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     >
                       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path

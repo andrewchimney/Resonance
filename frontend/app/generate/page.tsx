@@ -144,6 +144,7 @@ export default function GeneratePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [showChat, setShowChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   /** The preset the user has clicked on, pending a modification request */
   const [selectedPreset, setSelectedPreset] = useState<{
@@ -422,9 +423,13 @@ export default function GeneratePage() {
     }
   };
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive — scroll only within the
+  // chat container so the page window position is not affected.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
   return (
@@ -527,11 +532,10 @@ export default function GeneratePage() {
                               <span className="text-sm text-red-600 dark:text-red-400">Supabase not configured</span>
                           ) : (
                               <button
-                                  onClick={handleDiscordLogin}
-                                  disabled={authLoading}
-                                  className="flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-60 dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer"
+                                  onClick={() => setShowAuthPanel(true)}
+                                  className="flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-200 cursor-pointer"
                               >
-                                {authLoading ? "Redirecting..." : "Sign in to generate"}
+                                Sign in to generate
                               </button>
                           )}
                         </div>
@@ -542,7 +546,7 @@ export default function GeneratePage() {
                 // Chat view
                 <div className="flex h-full min-h-0 flex-col" style={{ height: 'calc(100vh - 170px)' }}>
                   {/* Messages container */}
-                  <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+                  <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
                     {messages.map((message, index) => (
                         <div
                             key={index}
