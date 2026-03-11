@@ -83,7 +83,7 @@ export default function LoginPanel({
          * - The listener will trigger whenever there is a change in the user's authentication state
          * - This includes: Signed in, signed out, token refreshed, etc.
          */
-        const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+        const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
             // Don't update the state if the component has already unmounted
             if (!isMounted) return;
             // Update the user state based on the new session
@@ -92,6 +92,13 @@ export default function LoginPanel({
 
             // Only notify parent on an actual new sign-in, not on the initial session restore
             if (event === "SIGNED_IN" && session?.user && onLoginSuccess) {
+                // Ensure a public.users row exists for OAuth (Discord) sign-ins.
+                // Email/password signups create this row explicitly, but OAuth logins
+                // skip that flow, causing FK violations when saving presets/comments.
+                await supabase.from("users").upsert(
+                    { id: session.user.id, email: session.user.email ?? null, username: null },
+                    { onConflict: "id", ignoreDuplicates: true }
+                );
                 onLoginSuccess(session.user);
             }
         });
